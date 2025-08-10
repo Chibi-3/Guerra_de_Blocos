@@ -26,6 +26,12 @@
             text-shadow: 0 0 15px black;
             z-index: 10;
         }
+        .copied-feedback {
+            position: absolute; bottom: 100%; left: 50%;
+            transform: translateX(-50%); background-color: #2dce89;
+            color: white; padding: 4px 8px; border-radius: 4px;
+            font-size: 12px; white-space: nowrap;
+        }
     </style>
 </head>
 <body class="bg-gray-900 text-white flex flex-col items-center justify-center min-h-screen p-4">
@@ -43,6 +49,9 @@
                     <button id="getHostId" class="w-full bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-2 px-4 rounded-lg transition-colors">Ser o Host</button>
                     <div class="mt-2 flex items-center justify-between">
                          <p class="text-sm">Seu ID: <strong id="my-peer-id" class="text-yellow-400 select-all">Aguardando...</strong></p>
+                         <div class="relative">
+                            <button id="copyIdBtn" class="hidden bg-gray-600 hover:bg-gray-500 text-white text-xs font-bold py-1 px-3 rounded-lg transition-colors">Copiar</button>
+                         </div>
                     </div>
                 </div>
                 <div class="flex-1">
@@ -78,6 +87,7 @@
     const playAgainBtn = document.createElement('button');
     playAgainBtn.className = "w-full bg-yellow-500 hover:bg-yellow-600 text-black font-bold py-2 px-4 rounded-lg transition-colors";
     playAgainBtn.textContent = "Jogar Novamente";
+    const copyIdBtn = document.getElementById('copyIdBtn');
 
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
@@ -91,7 +101,7 @@
     let gameRunning = false;
     let animationFrameId;
     let isHost = false;
-    let highestPlatformY = 0; // **NOVO:** Rastreia a plataforma mais alta
+    let highestPlatformY = 0;
 
     const GRAVITY = 0.4, JUMP_FORCE = -10, PLAYER_SPEED = 5, CAMERA_SPEED = 0.7;
     const PLAYER_WIDTH = 30, PLAYER_HEIGHT = 30;
@@ -106,6 +116,7 @@
             statusP.textContent = 'Aguardando conexão do amigo...';
             myPeerIdSpan.textContent = id;
             getHostIdBtn.disabled = true;
+            copyIdBtn.classList.remove('hidden'); // **FIX:** Mostra o botão de copiar
         });
         peer.on('connection', setupConnection);
         peer.on('error', err => { 
@@ -151,7 +162,6 @@
                 highestPlatformY = data.highestY;
                 initGame(false);
                 break;
-            // **NOVO:** Recebe novas plataformas do host
             case 'new_plats':
                 platforms.push(...data.platforms);
                 highestPlatformY = data.highestY;
@@ -176,12 +186,11 @@
         gameAreaDiv.classList.add('hidden');
         connectionSetupDiv.classList.remove('hidden');
         getHostIdBtn.disabled = false;
+        copyIdBtn.classList.add('hidden');
         if (animationFrameId) cancelAnimationFrame(animationFrameId);
     }
     
     // --- LÓGICA DO JOGO ---
-    
-    // **NOVO:** Função para adicionar plataformas
     function addPlatforms(startY, numPlatforms) {
         const newPlats = [];
         const halfWidth = canvas.width / 2;
@@ -189,23 +198,21 @@
         let currentY = startY;
 
         for (let i = 0; i < numPlatforms; i++) {
-            // Plataforma para o lado esquerdo
             newPlats.push({
                 x: Math.random() * (halfWidth - platWidth - 20) + 10,
                 y: currentY,
                 width: platWidth,
                 height: 20
             });
-            // Plataforma para o lado direito
             newPlats.push({
                 x: halfWidth + Math.random() * (halfWidth - platWidth - 20) + 10,
                 y: currentY + (Math.random() * 60 - 30),
                 width: platWidth,
                 height: 20
             });
-            currentY -= 120; // Sobe para a próxima fileira
+            currentY -= 120;
         }
-        highestPlatformY = currentY; // Atualiza a altura máxima
+        highestPlatformY = currentY;
         return newPlats;
     }
 
@@ -222,15 +229,15 @@
         endGameButtonsDiv.innerHTML = '';
 
         const halfWidth = canvas.width / 2;
-        // **AJUSTE:** Garante que os jogadores comecem no centro de suas áreas
         const startX_P1 = (halfWidth / 2) - (PLAYER_WIDTH / 2);
         const startX_P2 = halfWidth + (halfWidth / 2) - (PLAYER_WIDTH / 2);
 
         player = { x: isHost ? startX_P1 : startX_P2, y: canvas.height - 100, width: PLAYER_WIDTH, height: PLAYER_HEIGHT, vx: 0, vy: 0, onGround: false, color: isHost ? 'royalblue' : 'tomato', alive: true };
+        // **FIX:** Garante que o objeto 'friend' tenha todas as propriedades para ser desenhado
         friend = { x: isHost ? startX_P2 : startX_P1, y: canvas.height - 100, width: PLAYER_WIDTH, height: PLAYER_HEIGHT, color: isHost ? 'tomato' : 'royalblue', alive: true };
         
         if (isInitiator) {
-            platforms = addPlatforms(canvas.height - 50, 10); // Gera 10 fileiras iniciais
+            platforms = addPlatforms(canvas.height - 50, 10);
             conn.send({ type: 'init', platforms: platforms, highestY: highestPlatformY });
         }
         
@@ -263,18 +270,15 @@
     function update() {
         if (gameOver || !gameRunning) return;
 
-        // **NOVO:** Lógica para gerar plataformas infinitas
-        // Se a câmera estiver se aproximando do topo do mundo gerado
-        if (cameraY < highestPlatformY + canvas.height) {
+        // **FIX:** Lógica de geração infinita corrigida para usar a posição do jogador
+        if (player.y < highestPlatformY + canvas.height) {
             if (isHost) {
-                const newPlats = addPlatforms(highestPlatformY, 10); // Adiciona mais 10 fileiras
+                const newPlats = addPlatforms(highestPlatformY, 10);
                 platforms.push(...newPlats);
                 conn.send({ type: 'new_plats', platforms: newPlats, highestY: highestPlatformY });
             }
         }
-        // **NOVO:** Remove plataformas antigas que já saíram da tela
         platforms = platforms.filter(p => p.y < cameraY + canvas.height * 1.5);
-
 
         // Movimento do jogador
         if (keys['ArrowLeft']) player.x -= PLAYER_SPEED;
@@ -330,7 +334,7 @@
         ctx.strokeStyle = '#4a5568';
         ctx.lineWidth = 4;
         ctx.beginPath();
-        ctx.moveTo(canvas.width / 2, -100000); // Linha "infinita"
+        ctx.moveTo(canvas.width / 2, -100000);
         ctx.lineTo(canvas.width / 2, 100000);
         ctx.stroke();
 
@@ -378,6 +382,19 @@
     playAgainBtn.addEventListener('click', () => {
         conn.send({type: 'reset'});
         initGame(true);
+    });
+    // **FIX:** Adiciona o listener para o botão de copiar
+    copyIdBtn.addEventListener('click', () => {
+        const id = myPeerIdSpan.textContent;
+        navigator.clipboard.writeText(id).then(() => {
+            const feedback = document.createElement('div');
+            feedback.textContent = 'Copiado!';
+            feedback.className = 'copied-feedback';
+            copyIdBtn.parentElement.appendChild(feedback);
+            setTimeout(() => {
+                feedback.remove();
+            }, 2000);
+        }).catch(err => console.error('Erro ao copiar ID: ', err));
     });
     </script>
 </body>
