@@ -1,6 +1,6 @@
 Resumindo e um jogo de plataforma 2D multiplayer competitivo e de ritmo acelerado, construído para rodar diretamente no navegador a partir de um único arquivo HTML neste jogo, dois jogadores se enfrentam com um objetivo simples: sobreviver à queda as plataformas sobem cada vez mais rápido, e os jogadores devem descer de plataforma em plataforma para não serem empurrados para fora da tela. Quem sobreviver por mais tempo, vence!
 
-[➡️ Jogue agora!](https://seu-nome-de-usuario.github.io)
+[➡️ Jogue agora!](https://chibi-3.github.io/Guerra_de_Blocos/)
 
 
 O projeto foi intencionalmente construído em um único arquivo `index.html` para máxima simplicidade. Ele utiliza:
