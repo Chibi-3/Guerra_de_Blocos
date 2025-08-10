@@ -120,7 +120,7 @@
         });
         peer.on('connection', setupConnection);
         peer.on('error', err => { 
-            statusP.innerHTML = Erro de conexão: ${err.type}. <br> Por favor, recarregue a página e tente novamente.;
+            statusP.innerHTML = `Erro de conexão: ${err.type}. <br> Por favor, recarregue a página e tente novamente.`;
         });
     }
 
@@ -131,12 +131,12 @@
         if (peer) peer.destroy();
         peer = new Peer();
         peer.on('open', () => {
-            statusP.textContent = Tentando conectar ao Host: ${hostId}...;
+            statusP.textContent = `Tentando conectar ao Host: ${hostId}...`;
             const newConnection = peer.connect(hostId, { reliable: true });
             setupConnection(newConnection);
         });
         peer.on('error', err => {
-            statusP.innerHTML = Erro: ${err.type}. <br>Verifique o ID ou tente novamente.;
+            statusP.innerHTML = `Erro: ${err.type}. <br>Verifique o ID ou tente novamente.`;
         });
     }
 
@@ -144,7 +144,7 @@
         if (conn) conn.close();
         conn = newConnection;
         conn.on('open', () => {
-            statusP.textContent = Conectado a: ${conn.peer};
+            statusP.textContent = `Conectado a: ${conn.peer}`;
             connectionSetupDiv.classList.add('hidden');
             gameAreaDiv.classList.remove('hidden');
             if (isHost) {
