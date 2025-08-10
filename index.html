@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Guerra de Blocos: Escalada Vertical</title>
+    <title>Guerra de Blocos: Escalada Infinita</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
@@ -31,7 +31,7 @@
 <body class="bg-gray-900 text-white flex flex-col items-center justify-center min-h-screen p-4">
 
     <div class="w-full max-w-5xl bg-gray-800 rounded-lg shadow-xl p-6 space-y-6">
-        <h1 id="game-title" class="text-3xl font-bold text-center text-cyan-400">Guerra de Blocos: Escalada Vertical</h1>
+        <h1 id="game-title" class="text-3xl font-bold text-center text-cyan-400">Guerra de Blocos: Escalada Infinita</h1>
 
         <!-- Seção de Conexão -->
         <div id="connection-setup" class="bg-gray-700 p-4 rounded-lg">
@@ -91,6 +91,7 @@
     let gameRunning = false;
     let animationFrameId;
     let isHost = false;
+    let highestPlatformY = 0; // **NOVO:** Rastreia a plataforma mais alta
 
     const GRAVITY = 0.4, JUMP_FORCE = -10, PLAYER_SPEED = 5, CAMERA_SPEED = 0.7;
     const PLAYER_WIDTH = 30, PLAYER_HEIGHT = 30;
@@ -99,24 +100,16 @@
     function initializeHost() {
         isHost = true;
         if (peer) peer.destroy();
-        
         statusP.textContent = 'Iniciando...';
-        statusP.style.color = '#f6e05e';
-        
         peer = new Peer();
-        
         peer.on('open', id => {
             statusP.textContent = 'Aguardando conexão do amigo...';
-            statusP.style.color = '#68d391';
             myPeerIdSpan.textContent = id;
             getHostIdBtn.disabled = true;
         });
         peer.on('connection', setupConnection);
-        
         peer.on('error', err => { 
-            console.error("ERRO NO PEER:", err);
             statusP.innerHTML = `Erro de conexão: ${err.type}. <br> Por favor, recarregue a página e tente novamente.`;
-            statusP.style.color = '#f56565';
         });
     }
 
@@ -125,30 +118,22 @@
         const hostId = otherPeerIdInput.value.trim();
         if (!hostId) { alert('Insira o ID do Host.'); return; }
         if (peer) peer.destroy();
-        
         peer = new Peer();
-        
         peer.on('open', () => {
             statusP.textContent = `Tentando conectar ao Host: ${hostId}...`;
-            statusP.style.color = '#f6e05e';
             const newConnection = peer.connect(hostId, { reliable: true });
             setupConnection(newConnection);
         });
-
         peer.on('error', err => {
-            console.error("ERRO NO PEER:", err);
             statusP.innerHTML = `Erro: ${err.type}. <br>Verifique o ID ou tente novamente.`;
-            statusP.style.color = '#f56565';
         });
     }
 
     function setupConnection(newConnection) {
         if (conn) conn.close();
         conn = newConnection;
-        
         conn.on('open', () => {
             statusP.textContent = `Conectado a: ${conn.peer}`;
-            statusP.style.color = '#68d391';
             connectionSetupDiv.classList.add('hidden');
             gameAreaDiv.classList.remove('hidden');
             if (isHost) {
@@ -163,7 +148,13 @@
         switch (data.type) {
             case 'init':
                 platforms = data.platforms;
+                highestPlatformY = data.highestY;
                 initGame(false);
+                break;
+            // **NOVO:** Recebe novas plataformas do host
+            case 'new_plats':
+                platforms.push(...data.platforms);
+                highestPlatformY = data.highestY;
                 break;
             case 'pos':
                 friend.x = data.x;
@@ -182,7 +173,6 @@
     
     function resetToLobby() {
         statusP.textContent = 'Conexão perdida.';
-        statusP.style.color = '#f56565';
         gameAreaDiv.classList.add('hidden');
         connectionSetupDiv.classList.remove('hidden');
         getHostIdBtn.disabled = false;
@@ -190,33 +180,35 @@
     }
     
     // --- LÓGICA DO JOGO ---
-    function generatePlatforms() {
-        const plats = [];
+    
+    // **NOVO:** Função para adicionar plataformas
+    function addPlatforms(startY, numPlatforms) {
+        const newPlats = [];
         const halfWidth = canvas.width / 2;
         const platWidth = 100;
+        let currentY = startY;
 
-        // Plataformas iniciais
-        plats.push({ x: halfWidth / 2 - platWidth / 2, y: canvas.height - 50, width: platWidth, height: 20 });
-        plats.push({ x: halfWidth + (halfWidth / 2 - platWidth / 2), y: canvas.height - 50, width: platWidth, height: 20 });
-
-        for (let i = 1; i < 100; i++) {
+        for (let i = 0; i < numPlatforms; i++) {
             // Plataforma para o lado esquerdo
-            plats.push({
+            newPlats.push({
                 x: Math.random() * (halfWidth - platWidth - 20) + 10,
-                y: canvas.height - 50 - (i * 120),
+                y: currentY,
                 width: platWidth,
                 height: 20
             });
             // Plataforma para o lado direito
-            plats.push({
+            newPlats.push({
                 x: halfWidth + Math.random() * (halfWidth - platWidth - 20) + 10,
-                y: canvas.height - 50 - (i * 120) + (Math.random() * 60 - 30),
+                y: currentY + (Math.random() * 60 - 30),
                 width: platWidth,
                 height: 20
             });
+            currentY -= 120; // Sobe para a próxima fileira
         }
-        return plats;
+        highestPlatformY = currentY; // Atualiza a altura máxima
+        return newPlats;
     }
+
 
     function initGame(isInitiator = true) {
         const rect = canvas.getBoundingClientRect();
@@ -230,15 +222,16 @@
         endGameButtonsDiv.innerHTML = '';
 
         const halfWidth = canvas.width / 2;
-        const startX_P1 = halfWidth / 2 - PLAYER_WIDTH / 2;
-        const startX_P2 = halfWidth + halfWidth / 2 - PLAYER_WIDTH / 2;
+        // **AJUSTE:** Garante que os jogadores comecem no centro de suas áreas
+        const startX_P1 = (halfWidth / 2) - (PLAYER_WIDTH / 2);
+        const startX_P2 = halfWidth + (halfWidth / 2) - (PLAYER_WIDTH / 2);
 
         player = { x: isHost ? startX_P1 : startX_P2, y: canvas.height - 100, width: PLAYER_WIDTH, height: PLAYER_HEIGHT, vx: 0, vy: 0, onGround: false, color: isHost ? 'royalblue' : 'tomato', alive: true };
         friend = { x: isHost ? startX_P2 : startX_P1, y: canvas.height - 100, width: PLAYER_WIDTH, height: PLAYER_HEIGHT, color: isHost ? 'tomato' : 'royalblue', alive: true };
         
         if (isInitiator) {
-            platforms = generatePlatforms();
-            conn.send({ type: 'init', platforms: platforms });
+            platforms = addPlatforms(canvas.height - 50, 10); // Gera 10 fileiras iniciais
+            conn.send({ type: 'init', platforms: platforms, highestY: highestPlatformY });
         }
         
         if (animationFrameId) cancelAnimationFrame(animationFrameId);
@@ -269,6 +262,19 @@
 
     function update() {
         if (gameOver || !gameRunning) return;
+
+        // **NOVO:** Lógica para gerar plataformas infinitas
+        // Se a câmera estiver se aproximando do topo do mundo gerado
+        if (cameraY < highestPlatformY + canvas.height) {
+            if (isHost) {
+                const newPlats = addPlatforms(highestPlatformY, 10); // Adiciona mais 10 fileiras
+                platforms.push(...newPlats);
+                conn.send({ type: 'new_plats', platforms: newPlats, highestY: highestPlatformY });
+            }
+        }
+        // **NOVO:** Remove plataformas antigas que já saíram da tela
+        platforms = platforms.filter(p => p.y < cameraY + canvas.height * 1.5);
+
 
         // Movimento do jogador
         if (keys['ArrowLeft']) player.x -= PLAYER_SPEED;
