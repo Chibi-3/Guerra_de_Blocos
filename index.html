@@ -102,8 +102,13 @@
     let animationFrameId;
     let isHost = false;
 
-    const GRAVITY = 0.4, JUMP_FORCE = -10, PLAYER_SPEED = 5, CAMERA_SPEED = 0.7;
+    const GRAVITY = 0.4, JUMP_FORCE = -10, PLAYER_SPEED = 5;
     const PLAYER_WIDTH = 30, PLAYER_HEIGHT = 30;
+    // **FIX:** Lógica da câmera para forçar o jogador a subir
+    let CAMERA_SPEED_INITIAL = 0.9;
+    let CAMERA_ACCELERATION = 0.0003;
+    let cameraSpeed = CAMERA_SPEED_INITIAL;
+
 
     // --- LÓGICA DE CONEXÃO (PEERJS) ---
     function initializeHost() {
@@ -207,7 +212,7 @@
                 width: platWidth,
                 height: 20
             });
-            currentY -= 120; // Sobe para a próxima fileira
+            currentY -= 120;
         }
         return newPlats;
     }
@@ -221,6 +226,7 @@
         gameOver = false;
         gameRunning = false;
         cameraY = 0;
+        cameraSpeed = CAMERA_SPEED_INITIAL; // **FIX:** Reseta a velocidade da câmera
         gameMessage.textContent = '';
         endGameButtonsDiv.innerHTML = '';
 
@@ -232,7 +238,6 @@
         friend = { x: isHost ? startX_P2 : startX_P1, y: canvas.height - 100, width: PLAYER_WIDTH, height: PLAYER_HEIGHT, color: isHost ? 'tomato' : 'royalblue', alive: true };
         
         if (isInitiator) {
-            // **FIX:** Gera 300 fileiras de plataformas de uma vez
             platforms = generateInitialPlatforms(300);
             conn.send({ type: 'init', platforms: platforms });
         }
@@ -265,10 +270,7 @@
 
     function update() {
         if (gameOver || !gameRunning) return;
-
-        // **REMOVIDO:** Lógica de geração infinita, pois agora as plataformas são pré-geradas.
         
-        // Limpa plataformas que já saíram da tela para manter o desempenho
         platforms = platforms.filter(p => p.y < cameraY + canvas.height * 1.5);
 
         // Movimento do jogador
@@ -304,7 +306,9 @@
             if (player.x + player.width > canvas.width - margin) player.x = canvas.width - player.width - margin;
         }
 
-        cameraY += CAMERA_SPEED;
+        // **FIX:** Acelera a câmera com o tempo
+        cameraSpeed += CAMERA_ACCELERATION;
+        cameraY += cameraSpeed;
 
         if (player.y > cameraY + canvas.height) {
             player.alive = false;
