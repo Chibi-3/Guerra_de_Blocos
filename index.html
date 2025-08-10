@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Guerra de Blocos: Escalada Infinita</title>
+    <title>Guerra de Blocos: A Queda Infinita</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
@@ -37,7 +37,7 @@
 <body class="bg-gray-900 text-white flex flex-col items-center justify-center min-h-screen p-4">
 
     <div class="w-full max-w-5xl bg-gray-800 rounded-lg shadow-xl p-6 space-y-6">
-        <h1 id="game-title" class="text-3xl font-bold text-center text-cyan-400">Guerra de Blocos: Escalada Infinita</h1>
+        <h1 id="game-title" class="text-3xl font-bold text-center text-cyan-400">Guerra de Blocos: A Queda Infinita</h1>
 
         <!-- Seção de Conexão -->
         <div id="connection-setup" class="bg-gray-700 p-4 rounded-lg">
@@ -104,7 +104,7 @@
 
     const GRAVITY = 0.4, JUMP_FORCE = -10, PLAYER_SPEED = 5;
     const PLAYER_WIDTH = 30, PLAYER_HEIGHT = 30;
-    // **FIX:** Aumenta a velocidade e aceleração da câmera para criar mais desafio
+    // **MUDANÇA:** A câmera agora se move para baixo (y aumenta)
     let CAMERA_SPEED_INITIAL = 1.1;
     let CAMERA_ACCELERATION = 0.0005; 
     let cameraSpeed = CAMERA_SPEED_INITIAL;
@@ -193,27 +193,26 @@
     function generateInitialPlatforms(numPlatforms) {
         const newPlats = [];
         const halfWidth = canvas.width / 2;
-        // **FIX:** Plataformas mais estreitas para aumentar a dificuldade
         const platWidth = 75; 
-        let currentY = canvas.height - 50;
+        // **MUDANÇA:** Começa a gerar plataformas para baixo
+        let currentY = 200; 
         const margin = 30;
 
         for (let i = 0; i < numPlatforms; i++) {
-            // Plataforma para o lado esquerdo
             newPlats.push({
                 x: Math.random() * (halfWidth - platWidth - margin * 2) + margin,
                 y: currentY,
                 width: platWidth,
                 height: 20
             });
-            // Plataforma para o lado direito
             newPlats.push({
                 x: halfWidth + Math.random() * (halfWidth - platWidth - margin * 2) + margin,
                 y: currentY + (Math.random() * 60 - 30),
                 width: platWidth,
                 height: 20
             });
-            currentY -= 120;
+            // **MUDANÇA:** Incrementa Y para gerar para baixo
+            currentY += 120; 
         }
         return newPlats;
     }
@@ -235,8 +234,9 @@
         const startX_P1 = (halfWidth / 2) - (PLAYER_WIDTH / 2);
         const startX_P2 = halfWidth + (halfWidth / 2) - (PLAYER_WIDTH / 2);
 
-        player = { x: isHost ? startX_P1 : startX_P2, y: canvas.height - 100, width: PLAYER_WIDTH, height: PLAYER_HEIGHT, vx: 0, vy: 0, onGround: false, color: isHost ? 'royalblue' : 'tomato', alive: true };
-        friend = { x: isHost ? startX_P2 : startX_P1, y: canvas.height - 100, width: PLAYER_WIDTH, height: PLAYER_HEIGHT, color: isHost ? 'tomato' : 'royalblue', alive: true };
+        // **MUDANÇA:** Jogadores começam no topo
+        player = { x: isHost ? startX_P1 : startX_P2, y: 50, width: PLAYER_WIDTH, height: PLAYER_HEIGHT, vx: 0, vy: 0, onGround: false, color: isHost ? 'royalblue' : 'tomato', alive: true };
+        friend = { x: isHost ? startX_P2 : startX_P1, y: 50, width: PLAYER_WIDTH, height: PLAYER_HEIGHT, color: isHost ? 'tomato' : 'royalblue', alive: true };
         
         if (isInitiator) {
             platforms = generateInitialPlatforms(300);
@@ -272,13 +272,13 @@
     function update() {
         if (gameOver || !gameRunning) return;
         
-        platforms = platforms.filter(p => p.y < cameraY + canvas.height * 1.5);
+        platforms = platforms.filter(p => p.y > cameraY - 200);
 
         // Movimento do jogador
         if (keys['ArrowLeft']) player.x -= PLAYER_SPEED;
         if (keys['ArrowRight']) player.x += PLAYER_SPEED;
         if ((keys['ArrowUp'] || keys[' ']) && player.onGround) {
-            player.vy = JUMP_FORCE;
+            player.vy = JUMP_FORCE; // Pulo para cima
             player.onGround = false;
         }
 
@@ -307,11 +307,12 @@
             if (player.x + player.width > canvas.width - margin) player.x = canvas.width - player.width - margin;
         }
 
-        // Acelera a câmera com o tempo
+        // A câmera se move para baixo (y aumenta)
         cameraSpeed += CAMERA_ACCELERATION;
         cameraY += cameraSpeed;
 
-        if (player.y > cameraY + canvas.height) {
+        // **MUDANÇA:** Condição de morte invertida. Morre se sair pelo topo.
+        if (player.y + player.height < cameraY) {
             player.alive = false;
             conn.send({ type: 'dead' });
             endGame(false);
@@ -325,6 +326,7 @@
     function draw() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.save();
+        // **MUDANÇA:** A câmera agora se move para baixo, então transladamos para cima
         ctx.translate(0, -cameraY);
 
         // Desenhar linha divisória
