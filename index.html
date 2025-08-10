@@ -32,6 +32,16 @@
             color: white; padding: 4px 8px; border-radius: 4px;
             font-size: 12px; white-space: nowrap;
         }
+        .hud {
+            position: absolute;
+            top: 10px;
+            font-size: 1.25rem;
+            font-weight: bold;
+            color: white;
+            text-shadow: 2px 2px 4px black;
+        }
+        #player-score { left: 20px; }
+        #friend-score { right: 20px; }
     </style>
 </head>
 <body class="bg-gray-900 text-white flex flex-col items-center justify-center min-h-screen p-4">
@@ -68,6 +78,8 @@
             <div id="game-container">
                 <canvas id="gameCanvas"></canvas>
                 <div id="countdown-overlay">3</div>
+                <div id="player-score" class="hud">P1: 0</div>
+                <div id="friend-score" class="hud">P2: 0</div>
             </div>
              <div id="end-game-buttons" class="flex gap-4 mt-4"></div>
         </div>
@@ -92,6 +104,8 @@
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     const countdownOverlay = document.getElementById('countdown-overlay');
+    const playerScoreHud = document.getElementById('player-score');
+    const friendScoreHud = document.getElementById('friend-score');
 
     let peer, conn;
     let player, friend;
@@ -104,8 +118,8 @@
 
     const GRAVITY = 0.5, JUMP_FORCE = -11, PLAYER_SPEED = 5;
     const PLAYER_WIDTH = 30, PLAYER_HEIGHT = 30;
-    let PLATFORM_SPEED_INITIAL = 1.5;
-    let PLATFORM_ACCELERATION = 0.001; 
+    let PLATFORM_SPEED_INITIAL = 1.8; // **AUMENTADO**
+    let PLATFORM_ACCELERATION = 0.0015; // **AUMENTADO**
     let platformSpeed = PLATFORM_SPEED_INITIAL;
 
 
@@ -173,12 +187,12 @@
                 friend.x = data.x;
                 friend.y = data.y;
                 friend.alive = data.alive;
+                friend.score = data.score;
                 break;
             case 'dead':
                 friend.alive = false;
                 if (player.alive) endGame(true);
                 break;
-            // **FIX:** A mensagem 'reset' foi removida. A mensagem 'init' agora controla o reinício.
         }
     }
     
@@ -206,11 +220,13 @@
             
             newPlats.push({
                 x: Math.random() * (halfWidth - platWidth - margin * 2) + margin,
-                y: platYLeft, width: platWidth, height: 20
+                y: platYLeft, width: platWidth, height: 20,
+                type: Math.random() < 0.3 ? 'breakable' : 'normal' // 30% de chance de ser quebrável
             });
             newPlats.push({
                 x: halfWidth + Math.random() * (halfWidth - platWidth - margin * 2) + margin,
-                y: platYRight, width: platWidth, height: 20
+                y: platYRight, width: platWidth, height: 20,
+                type: Math.random() < 0.3 ? 'breakable' : 'normal'
             });
             
             currentY += 120;
@@ -237,12 +253,11 @@
         const startX_P1 = (halfWidth / 2) - (PLAYER_WIDTH / 2);
         const startX_P2 = halfWidth + (halfWidth / 2) - (PLAYER_WIDTH / 2);
 
-        player = { x: isHost ? startX_P1 : startX_P2, y: 50, width: PLAYER_WIDTH, height: PLAYER_HEIGHT, vx: 0, vy: 0, onGround: false, color: isHost ? 'royalblue' : 'tomato', alive: true };
-        friend = { x: isHost ? startX_P2 : startX_P1, y: 50, width: PLAYER_WIDTH, height: PLAYER_HEIGHT, color: isHost ? 'tomato' : 'royalblue', alive: true };
+        player = { x: isHost ? startX_P1 : startX_P2, y: 50, width: PLAYER_WIDTH, height: PLAYER_HEIGHT, vx: 0, vy: 0, onGround: false, color: isHost ? 'royalblue' : 'tomato', alive: true, score: 0 };
+        friend = { x: isHost ? startX_P2 : startX_P1, y: 50, width: PLAYER_WIDTH, height: PLAYER_HEIGHT, color: isHost ? 'tomato' : 'royalblue', alive: true, score: 0 };
         
         if (isInitiator) {
             platforms = addPlatforms(canvas.height, 20);
-            // A mensagem 'init' agora é a única fonte da verdade para iniciar/reiniciar o jogo.
             conn.send({ type: 'init', platforms: platforms, lowestY: lowestPlatformY });
         }
         
@@ -276,14 +291,22 @@
         if (gameOver || !gameRunning) return;
         
         platformSpeed += PLATFORM_ACCELERATION;
-        platforms.forEach(p => p.y -= platformSpeed);
+        platforms.forEach(p => {
+            if (p.breakTimer > 0) {
+                p.breakTimer--;
+                if (p.breakTimer === 0) {
+                    p.toBeRemoved = true;
+                }
+            }
+            p.y -= platformSpeed;
+        });
 
         if (isHost && lowestPlatformY < canvas.height + 200) {
             const newPlats = addPlatforms(lowestPlatformY + 120, 10);
             platforms.push(...newPlats);
             conn.send({ type: 'new_plats', platforms: newPlats, lowestY: lowestPlatformY });
         }
-        platforms = platforms.filter(p => p.y + p.height > 0);
+        platforms = platforms.filter(p => p.y + p.height > 0 && !p.toBeRemoved);
 
         if (keys['ArrowLeft']) player.x -= PLAYER_SPEED;
         if (keys['ArrowRight']) player.x += PLAYER_SPEED;
@@ -303,6 +326,9 @@
                     player.onGround = true;
                     player.y = plat.y - player.height;
                     player.vy = 0;
+                    if (plat.type === 'breakable' && !plat.breakTimer) {
+                        plat.breakTimer = 30; // Começa a quebrar (0.5s)
+                    }
                 }
             }
         });
@@ -321,6 +347,8 @@
             if (player.x + player.width > canvas.width - margin) player.x = canvas.width - player.width - margin;
         }
 
+        player.score = Math.max(player.score, Math.floor(player.y));
+
         if (player.y + player.height < 0 || player.y > canvas.height) {
             player.alive = false;
             conn.send({ type: 'dead' });
@@ -328,7 +356,7 @@
         }
 
         if (conn && conn.open) {
-            conn.send({ type: 'pos', x: player.x, y: player.y, alive: player.alive });
+            conn.send({ type: 'pos', x: player.x, y: player.y, alive: player.alive, score: player.score });
         }
     }
 
@@ -345,8 +373,19 @@
         ctx.lineTo(canvas.width / 2, canvas.height);
         ctx.stroke();
 
-        ctx.fillStyle = '#63b3ed';
-        platforms.forEach(plat => ctx.fillRect(plat.x, plat.y, plat.width, plat.height));
+        platforms.forEach(plat => {
+            if (plat.type === 'breakable') {
+                ctx.fillStyle = '#a0522d'; // Marrom para quebrável
+            } else {
+                ctx.fillStyle = '#63b3ed'; // Azul para normal
+            }
+            let platX = plat.x;
+            if (plat.breakTimer > 0) {
+                // Efeito de tremer
+                platX += Math.sin(plat.breakTimer * 0.5) * 3;
+            }
+            ctx.fillRect(platX, plat.y, plat.width, plat.height);
+        });
 
         if (player.alive) {
             ctx.fillStyle = player.color;
@@ -357,6 +396,10 @@
             ctx.fillStyle = friend.color;
             ctx.fillRect(friend.x, friend.y, friend.width, friend.height);
         }
+
+        // Atualiza o HUD de pontuação
+        playerScoreHud.textContent = `P1: ${player.score}`;
+        friendScoreHud.textContent = `P2: ${friend.score}`;
     }
 
     function gameLoop() {
@@ -370,8 +413,27 @@
         gameOver = true;
         gameRunning = false;
         cancelAnimationFrame(animationFrameId);
-        gameMessage.textContent = iWon ? "VOCÊ VENCEU!" : "Você perdeu...";
-        gameMessage.style.color = iWon ? '#48bb78' : '#f56565';
+        
+        const myFinalScore = player.score;
+        const friendFinalScore = friend.score;
+        let winnerText = '';
+
+        if (iWon) {
+            winnerText = "VOCÊ VENCEU!";
+        } else if (!player.alive && !friend.alive) {
+            if (myFinalScore > friendFinalScore) {
+                winnerText = "VOCÊ VENCEU PELA PONTUAÇÃO!";
+            } else if (friendFinalScore > myFinalScore) {
+                winnerText = "VOCÊ PERDEU PELA PONTUAÇÃO!";
+            } else {
+                winnerText = "EMPATE!";
+            }
+        } else {
+            winnerText = "Você perdeu...";
+        }
+
+        gameMessage.textContent = winnerText;
+        gameMessage.style.color = (iWon || myFinalScore > friendFinalScore) ? '#48bb78' : '#f56565';
         
         endGameButtonsDiv.innerHTML = '';
         if(isHost) {
@@ -382,10 +444,7 @@
     // --- EVENT LISTENERS ---
     getHostIdBtn.addEventListener('click', initializeHost);
     connectToHostBtn.addEventListener('click', connectToPeer);
-    // **FIX:** Lógica de reinício simplificada para evitar bugs de sincronização.
     playAgainBtn.addEventListener('click', () => {
-        // O Host simplesmente inicia um novo jogo. A mensagem 'init'
-        // que é enviada automaticamente cuidará de reiniciar o jogo para o amigo.
         initGame(true);
     });
     copyIdBtn.addEventListener('click', () => {
