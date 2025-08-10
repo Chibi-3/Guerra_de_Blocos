@@ -104,7 +104,6 @@
 
     const GRAVITY = 0.5, JUMP_FORCE = -11, PLAYER_SPEED = 5;
     const PLAYER_WIDTH = 30, PLAYER_HEIGHT = 30;
-    // **MUDANÇA DRÁSTICA:** Velocidade e aceleração das plataformas aumentadas para criar um desafio real.
     let PLATFORM_SPEED_INITIAL = 1.5;
     let PLATFORM_ACCELERATION = 0.001; 
     let platformSpeed = PLATFORM_SPEED_INITIAL;
@@ -179,9 +178,7 @@
                 friend.alive = false;
                 if (player.alive) endGame(true);
                 break;
-            case 'reset':
-                initGame(isHost);
-                break;
+            // **FIX:** A mensagem 'reset' foi removida. A mensagem 'init' agora controla o reinício.
         }
     }
     
@@ -198,7 +195,6 @@
     function addPlatforms(startY, numPlatforms) {
         const newPlats = [];
         const halfWidth = canvas.width / 2;
-        // **MUDANÇA DRÁSTICA:** Plataformas mais estreitas para aumentar a dificuldade.
         const platWidth = 60;
         let currentY = startY;
         const margin = 30;
@@ -246,6 +242,7 @@
         
         if (isInitiator) {
             platforms = addPlatforms(canvas.height, 20);
+            // A mensagem 'init' agora é a única fonte da verdade para iniciar/reiniciar o jogo.
             conn.send({ type: 'init', platforms: platforms, lowestY: lowestPlatformY });
         }
         
@@ -338,7 +335,6 @@
     function draw() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         
-        // **NOVO:** Desenha a zona de perigo no topo
         ctx.fillStyle = 'rgba(255, 50, 50, 0.2)';
         ctx.fillRect(0, 0, canvas.width, 30);
 
@@ -386,8 +382,10 @@
     // --- EVENT LISTENERS ---
     getHostIdBtn.addEventListener('click', initializeHost);
     connectToHostBtn.addEventListener('click', connectToPeer);
+    // **FIX:** Lógica de reinício simplificada para evitar bugs de sincronização.
     playAgainBtn.addEventListener('click', () => {
-        conn.send({type: 'reset'});
+        // O Host simplesmente inicia um novo jogo. A mensagem 'init'
+        // que é enviada automaticamente cuidará de reiniciar o jogo para o amigo.
         initGame(true);
     });
     copyIdBtn.addEventListener('click', () => {
