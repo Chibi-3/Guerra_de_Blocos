@@ -96,18 +96,18 @@
     let peer, conn;
     let player, friend;
     let platforms = [];
-    let cameraY = 0;
     let gameOver = false;
     let gameRunning = false;
     let animationFrameId;
     let isHost = false;
+    let lowestPlatformY = 0; // Rastreia a plataforma mais baixa
 
     const GRAVITY = 0.4, JUMP_FORCE = -10, PLAYER_SPEED = 5;
     const PLAYER_WIDTH = 30, PLAYER_HEIGHT = 30;
-    // **MUDANÇA:** A câmera agora se move para baixo (y aumenta)
-    let CAMERA_SPEED_INITIAL = 1.1;
-    let CAMERA_ACCELERATION = 0.0005; 
-    let cameraSpeed = CAMERA_SPEED_INITIAL;
+    // **MUDANÇA:** Velocidade das plataformas que sobem
+    let PLATFORM_SPEED_INITIAL = 1.1;
+    let PLATFORM_ACCELERATION = 0.0005; 
+    let platformSpeed = PLATFORM_SPEED_INITIAL;
 
 
     // --- LÓGICA DE CONEXÃO (PEERJS) ---
@@ -163,7 +163,12 @@
         switch (data.type) {
             case 'init':
                 platforms = data.platforms;
+                lowestPlatformY = data.lowestY;
                 initGame(false);
+                break;
+            case 'new_plats':
+                platforms.push(...data.platforms);
+                lowestPlatformY = data.lowestY;
                 break;
             case 'pos':
                 friend.x = data.x;
@@ -190,30 +195,32 @@
     }
     
     // --- LÓGICA DO JOGO ---
-    function generateInitialPlatforms(numPlatforms) {
+    function addPlatforms(startY, numPlatforms) {
         const newPlats = [];
         const halfWidth = canvas.width / 2;
-        const platWidth = 75; 
-        // **MUDANÇA:** Começa a gerar plataformas para baixo
-        let currentY = 200; 
+        const platWidth = 75;
+        let currentY = startY;
         const margin = 30;
+        let lowestY = startY;
 
         for (let i = 0; i < numPlatforms; i++) {
+            const platYLeft = currentY + (Math.random() * 60 - 30);
+            const platYRight = currentY + (Math.random() * 60 - 30);
+            
             newPlats.push({
                 x: Math.random() * (halfWidth - platWidth - margin * 2) + margin,
-                y: currentY,
-                width: platWidth,
-                height: 20
+                y: platYLeft, width: platWidth, height: 20
             });
             newPlats.push({
                 x: halfWidth + Math.random() * (halfWidth - platWidth - margin * 2) + margin,
-                y: currentY + (Math.random() * 60 - 30),
-                width: platWidth,
-                height: 20
+                y: platYRight, width: platWidth, height: 20
             });
-            // **MUDANÇA:** Incrementa Y para gerar para baixo
-            currentY += 120; 
+            
+            currentY += 120;
+            if (platYLeft > lowestY) lowestY = platYLeft;
+            if (platYRight > lowestY) lowestY = platYRight;
         }
+        lowestPlatformY = lowestY;
         return newPlats;
     }
 
@@ -225,8 +232,7 @@
 
         gameOver = false;
         gameRunning = false;
-        cameraY = 0;
-        cameraSpeed = CAMERA_SPEED_INITIAL;
+        platformSpeed = PLATFORM_SPEED_INITIAL;
         gameMessage.textContent = '';
         endGameButtonsDiv.innerHTML = '';
 
@@ -234,13 +240,12 @@
         const startX_P1 = (halfWidth / 2) - (PLAYER_WIDTH / 2);
         const startX_P2 = halfWidth + (halfWidth / 2) - (PLAYER_WIDTH / 2);
 
-        // **MUDANÇA:** Jogadores começam no topo
         player = { x: isHost ? startX_P1 : startX_P2, y: 50, width: PLAYER_WIDTH, height: PLAYER_HEIGHT, vx: 0, vy: 0, onGround: false, color: isHost ? 'royalblue' : 'tomato', alive: true };
         friend = { x: isHost ? startX_P2 : startX_P1, y: 50, width: PLAYER_WIDTH, height: PLAYER_HEIGHT, color: isHost ? 'tomato' : 'royalblue', alive: true };
         
         if (isInitiator) {
-            platforms = generateInitialPlatforms(300);
-            conn.send({ type: 'init', platforms: platforms });
+            platforms = addPlatforms(canvas.height, 20); // Gera 20 fileiras abaixo da tela
+            conn.send({ type: 'init', platforms: platforms, lowestY: lowestPlatformY });
         }
         
         if (animationFrameId) cancelAnimationFrame(animationFrameId);
@@ -272,13 +277,24 @@
     function update() {
         if (gameOver || !gameRunning) return;
         
-        platforms = platforms.filter(p => p.y > cameraY - 200);
+        // **MUDANÇA:** As plataformas agora sobem
+        platformSpeed += PLATFORM_ACCELERATION;
+        platforms.forEach(p => p.y -= platformSpeed);
+
+        // Gera novas plataformas quando as últimas estiverem entrando na tela
+        if (isHost && lowestPlatformY < canvas.height + 200) {
+            const newPlats = addPlatforms(lowestPlatformY + 120, 10);
+            platforms.push(...newPlats);
+            conn.send({ type: 'new_plats', platforms: newPlats, lowestY: lowestPlatformY });
+        }
+        // Limpa plataformas que já saíram da tela
+        platforms = platforms.filter(p => p.y + p.height > 0);
 
         // Movimento do jogador
         if (keys['ArrowLeft']) player.x -= PLAYER_SPEED;
         if (keys['ArrowRight']) player.x += PLAYER_SPEED;
         if ((keys['ArrowUp'] || keys[' ']) && player.onGround) {
-            player.vy = JUMP_FORCE; // Pulo para cima
+            player.vy = JUMP_FORCE;
             player.onGround = false;
         }
 
@@ -288,13 +304,22 @@
 
         // Colisão com plataformas
         platforms.forEach(plat => {
+            // A condição de colisão agora precisa considerar que o jogador é carregado para cima
             if (player.x < plat.x + plat.width && player.x + player.width > plat.x &&
-                player.y + player.height > plat.y && player.y + player.height < plat.y + plat.height + player.vy && player.vy >= 0) {
-                player.onGround = true;
-                player.y = plat.y - player.height;
-                player.vy = 0;
+                player.y + player.height > plat.y && player.y + player.height < plat.y + plat.height + player.vy) {
+                
+                if (player.vy >= 0) { // Só aterrissa se estiver caindo
+                    player.onGround = true;
+                    player.y = plat.y - player.height;
+                    player.vy = 0;
+                }
             }
         });
+        
+        // Se o jogador estiver em uma plataforma, ele é carregado para cima com ela
+        if (player.onGround) {
+            player.y -= platformSpeed;
+        }
         
         // Limites da tela (horizontal, por zona)
         const halfWidth = canvas.width / 2;
@@ -307,12 +332,8 @@
             if (player.x + player.width > canvas.width - margin) player.x = canvas.width - player.width - margin;
         }
 
-        // A câmera se move para baixo (y aumenta)
-        cameraSpeed += CAMERA_ACCELERATION;
-        cameraY += cameraSpeed;
-
-        // **MUDANÇA:** Condição de morte invertida. Morre se sair pelo topo.
-        if (player.y + player.height < cameraY) {
+        // **MUDANÇA:** Condição de morte. Morre se sair pelo topo OU cair para fora da tela.
+        if (player.y + player.height < 0 || player.y > canvas.height) {
             player.alive = false;
             conn.send({ type: 'dead' });
             endGame(false);
@@ -325,16 +346,15 @@
 
     function draw() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.save();
-        // **MUDANÇA:** A câmera agora se move para baixo, então transladamos para cima
-        ctx.translate(0, -cameraY);
+        
+        // **MUDANÇA:** Câmera está parada, não há mais ctx.translate
 
         // Desenhar linha divisória
         ctx.strokeStyle = '#4a5568';
         ctx.lineWidth = 4;
         ctx.beginPath();
-        ctx.moveTo(canvas.width / 2, -100000);
-        ctx.lineTo(canvas.width / 2, 100000);
+        ctx.moveTo(canvas.width / 2, 0);
+        ctx.lineTo(canvas.width / 2, canvas.height);
         ctx.stroke();
 
         // Desenhar plataformas
@@ -351,8 +371,6 @@
             ctx.fillStyle = friend.color;
             ctx.fillRect(friend.x, friend.y, friend.width, friend.height);
         }
-
-        ctx.restore();
     }
 
     function gameLoop() {
