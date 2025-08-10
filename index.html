@@ -101,7 +101,6 @@
     let gameRunning = false;
     let animationFrameId;
     let isHost = false;
-    let highestPlatformY = 0;
 
     const GRAVITY = 0.4, JUMP_FORCE = -10, PLAYER_SPEED = 5, CAMERA_SPEED = 0.7;
     const PLAYER_WIDTH = 30, PLAYER_HEIGHT = 30;
@@ -159,12 +158,7 @@
         switch (data.type) {
             case 'init':
                 platforms = data.platforms;
-                highestPlatformY = data.highestY;
                 initGame(false);
-                break;
-            case 'new_plats':
-                platforms.push(...data.platforms);
-                highestPlatformY = data.highestY;
                 break;
             case 'pos':
                 friend.x = data.x;
@@ -191,12 +185,12 @@
     }
     
     // --- LÓGICA DO JOGO ---
-    function addPlatforms(startY, numPlatforms) {
+    function generateInitialPlatforms(numPlatforms) {
         const newPlats = [];
         const halfWidth = canvas.width / 2;
         const platWidth = 100;
-        let currentY = startY;
-        const margin = 30; // **AJUSTE:** Aumenta a margem do centro e das bordas
+        let currentY = canvas.height - 50;
+        const margin = 30;
 
         for (let i = 0; i < numPlatforms; i++) {
             // Plataforma para o lado esquerdo
@@ -213,9 +207,8 @@
                 width: platWidth,
                 height: 20
             });
-            currentY -= 120;
+            currentY -= 120; // Sobe para a próxima fileira
         }
-        highestPlatformY = currentY;
         return newPlats;
     }
 
@@ -239,8 +232,9 @@
         friend = { x: isHost ? startX_P2 : startX_P1, y: canvas.height - 100, width: PLAYER_WIDTH, height: PLAYER_HEIGHT, color: isHost ? 'tomato' : 'royalblue', alive: true };
         
         if (isInitiator) {
-            platforms = addPlatforms(canvas.height - 50, 15); // Gera 15 fileiras iniciais
-            conn.send({ type: 'init', platforms: platforms, highestY: highestPlatformY });
+            // **FIX:** Gera 300 fileiras de plataformas de uma vez
+            platforms = generateInitialPlatforms(300);
+            conn.send({ type: 'init', platforms: platforms });
         }
         
         if (animationFrameId) cancelAnimationFrame(animationFrameId);
@@ -272,12 +266,9 @@
     function update() {
         if (gameOver || !gameRunning) return;
 
-        // **FIX:** Lógica de geração infinita agora baseada na posição da câmera
-        if (isHost && cameraY < highestPlatformY + canvas.height * 2) {
-            const newPlats = addPlatforms(highestPlatformY, 10);
-            platforms.push(...newPlats);
-            conn.send({ type: 'new_plats', platforms: newPlats, highestY: highestPlatformY });
-        }
+        // **REMOVIDO:** Lógica de geração infinita, pois agora as plataformas são pré-geradas.
+        
+        // Limpa plataformas que já saíram da tela para manter o desempenho
         platforms = platforms.filter(p => p.y < cameraY + canvas.height * 1.5);
 
         // Movimento do jogador
@@ -304,7 +295,7 @@
         
         // Limites da tela (horizontal, por zona)
         const halfWidth = canvas.width / 2;
-        const margin = 5; // Pequena margem para não colar na linha/borda
+        const margin = 5;
         if (isHost) {
             if (player.x < margin) player.x = margin;
             if (player.x + player.width > halfWidth - margin) player.x = halfWidth - player.width - margin;
