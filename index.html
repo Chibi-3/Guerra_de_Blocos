@@ -45,7 +45,6 @@
             <h2 class="text-xl font-semibold mb-2">1. Conexão</h2>
             <p class="text-sm text-gray-400 mb-4">Um jogador deve ser o "Host". O outro se conecta a ele usando o ID.</p>
             
-            <!-- Gemini Feature: Gerador de Tema -->
             <div id="host-options" class="hidden mb-4 p-3 bg-gray-600 rounded-lg">
                  <label for="theme-input" class="block text-sm font-medium text-cyan-300">Digite um tema para o jogo (opcional):</label>
                  <div class="flex gap-2 mt-1">
@@ -104,7 +103,6 @@
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     
-    // Gemini elements
     const hostOptionsDiv = document.getElementById('host-options');
     const generateTitleBtn = document.getElementById('generate-title-btn');
     const themeInput = document.getElementById('theme-input');
@@ -156,40 +154,37 @@
     }
 
     // --- LÓGICA DE CONEXÃO (PEERJS) ---
-    // **FIX:** Trocando para uma configuração de servidor PeerJS diferente e mais estável.
-    const peerConfig = {
-        config: {
-            'iceServers': [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' },
-                { urls: 'stun:stun.services.mozilla.com' }
-            ]
-        }
-    };
-
+    // **FIX:** Simplificando a configuração para usar o servidor PeerJS padrão, que é mais confiável.
     function initializeHost() {
         isHost = true;
         hostOptionsDiv.classList.remove('hidden');
         if (peer) peer.destroy();
         
-        statusP.textContent = 'Tentando conectar ao servidor PeerJS...';
-        peer = new Peer(undefined, peerConfig);
+        statusP.textContent = 'Iniciando...';
+        statusP.style.color = '#f6e05e'; // yellow
+        
+        // Usando PeerJS sem configuração explícita para usar o servidor em nuvem padrão.
+        peer = new Peer();
         
         peer.on('open', id => {
             statusP.textContent = 'Aguardando conexão do amigo...';
+            statusP.style.color = '#68d391'; // green
             myPeerIdSpan.textContent = id;
             getHostIdBtn.disabled = true;
             getHostIdBtn.textContent = "ID Gerado!";
             copyIdBtn.classList.remove('hidden');
         });
         peer.on('connection', setupConnection);
-        // **FIX:** Mensagem de erro mais detalhada para o usuário.
+        
         peer.on('error', err => { 
             console.error("ERRO NO PEER:", err);
-            statusP.innerHTML = `Erro: ${err.type}. <br>O servidor pode estar offline. Tente novamente mais tarde.`;
+            statusP.innerHTML = `Erro: ${err.type}. <br>O servidor pode estar offline. Por favor, recarregue a página e tente novamente.`;
+            statusP.style.color = '#f56565'; // red
         });
+        
         peer.on('disconnected', () => {
             statusP.textContent = 'Desconectado do servidor PeerJS. Tentando reconectar...';
+            statusP.style.color = '#f6e05e'; // yellow
         });
     }
 
@@ -199,24 +194,37 @@
         if (!hostId) { alert('Insira o ID do Host.'); return; }
         if (peer) peer.destroy();
         
-        peer = new Peer(undefined, peerConfig);
+        peer = new Peer();
         
         peer.on('open', () => {
             statusP.textContent = `Tentando conectar ao Host: ${hostId}...`;
+            statusP.style.color = '#f6e05e'; // yellow
             const newConnection = peer.connect(hostId, { reliable: true });
             setupConnection(newConnection);
         });
+
         peer.on('error', err => {
             console.error("ERRO NO PEER:", err);
             statusP.innerHTML = `Erro: ${err.type}. <br>Verifique o ID do Host ou tente novamente.`;
+            statusP.style.color = '#f56565'; // red
         });
     }
 
     function setupConnection(newConnection) {
         if (conn) conn.close();
         conn = newConnection;
+        
+        // Timeout para o caso de a conexão falhar silenciosamente
+        let connectionTimeout = setTimeout(() => {
+            statusP.textContent = 'Falha ao conectar. Verifique o ID e tente novamente.';
+            statusP.style.color = '#f56565'; // red
+            conn.close();
+        }, 15000); // 15 segundos de timeout
+
         conn.on('open', () => {
+            clearTimeout(connectionTimeout); // Conexão bem-sucedida, cancela o timeout
             statusP.textContent = `Conectado a: ${conn.peer}`;
+            statusP.style.color = '#68d391'; // green
             connectionSetupDiv.classList.add('hidden');
             gameAreaDiv.classList.remove('hidden');
             if (isHost) {
@@ -258,6 +266,7 @@
     
     function resetToLobby() {
         statusP.textContent = 'Conexão perdida.';
+        statusP.style.color = '#f56565'; // red
         gameAreaDiv.classList.add('hidden');
         connectionSetupDiv.classList.remove('hidden');
         hostOptionsDiv.classList.add('hidden');
@@ -343,7 +352,9 @@
             endGame(false);
         }
 
-        conn.send({ type: 'pos', x: player.x, y: player.y, alive: player.alive });
+        if (conn && conn.open) {
+            conn.send({ type: 'pos', x: player.x, y: player.y, alive: player.alive });
+        }
     }
 
     function draw() {
@@ -382,7 +393,7 @@
         gameMessage.textContent = iWon ? "VOCÊ VENCEU!" : "Você perdeu...";
         gameMessage.style.color = iWon ? '#48bb78' : '#f56565';
         
-        endGameButtonsDiv.innerHTML = ''; // Limpa botões antigos
+        endGameButtonsDiv.innerHTML = '';
         
         const geminiBtn = document.createElement('button');
         geminiBtn.className = "flex-1 bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg transition-colors";
