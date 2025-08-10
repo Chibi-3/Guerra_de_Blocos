@@ -3,64 +3,61 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Jogo de Escalada Multiplayer</title>
+    <title>Guerra de Blocos: Arena Vertical</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <!-- Biblioteca para gerar sons -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
     <style>
-        body { font-family: 'Inter', sans-serif; }
+        body { font-family: 'Inter', sans-serif; background-color: #0a0a0a; }
+        #game-container { position: relative; }
         canvas {
             background-color: #1a202c;
             border-radius: 0.5rem;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         }
-        .copied-feedback {
-            position: absolute; bottom: 100%; left: 50%;
-            transform: translateX(-50%); background-color: #2dce89;
-            color: white; padding: 4px 8px; border-radius: 4px;
-            font-size: 12px; white-space: nowrap;
+        #countdown-overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            font-size: 8rem;
+            font-weight: bold;
+            color: white;
+            text-shadow: 0 0 15px black;
+            z-index: 10;
         }
-        .loader {
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #3498db;
-            border-radius: 50%;
-            width: 24px;
-            height: 24px;
-            animation: spin 1s linear infinite;
-            display: none; /* Hidden by default */
-            margin: 0 auto;
+        .hud {
+            position: absolute;
+            top: 10px;
+            font-size: 1rem;
+            font-weight: bold;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 5px;
+            background-color: rgba(0,0,0,0.4);
+            text-shadow: 1px 1px 2px black;
         }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
+        #player-hud { left: 5%; }
+        #friend-hud { right: 5%; }
     </style>
 </head>
 <body class="bg-gray-900 text-white flex flex-col items-center justify-center min-h-screen p-4">
 
     <div class="w-full max-w-5xl bg-gray-800 rounded-lg shadow-xl p-6 space-y-6">
-        <h1 id="game-title" class="text-3xl font-bold text-center text-cyan-400">Guerra de Blocos: A Escalada</h1>
+        <h1 id="game-title" class="text-3xl font-bold text-center text-cyan-400">Guerra de Blocos: Arena Vertical</h1>
 
         <!-- Seção de Conexão -->
         <div id="connection-setup" class="bg-gray-700 p-4 rounded-lg">
             <h2 class="text-xl font-semibold mb-2">1. Conexão</h2>
             <p class="text-sm text-gray-400 mb-4">Um jogador deve ser o "Host". O outro se conecta a ele usando o ID.</p>
             
-            <div id="host-options" class="hidden mb-4 p-3 bg-gray-600 rounded-lg">
-                 <label for="theme-input" class="block text-sm font-medium text-cyan-300">Digite um tema para o jogo (opcional):</label>
-                 <div class="flex gap-2 mt-1">
-                    <input type="text" id="theme-input" placeholder="Ex: selva, espaço, doces..." class="w-full p-2 rounded-lg bg-gray-800 border border-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500">
-                    <button id="generate-title-btn" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg transition-colors whitespace-nowrap">✨ Gerar Nome</button>
-                 </div>
-            </div>
-
             <div class="flex flex-col sm:flex-row gap-4">
                 <div class="flex-1">
                     <button id="getHostId" class="w-full bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-2 px-4 rounded-lg transition-colors">Ser o Host</button>
                     <div class="mt-2 flex items-center justify-between">
                          <p class="text-sm">Seu ID: <strong id="my-peer-id" class="text-yellow-400 select-all">Aguardando...</strong></p>
-                         <div class="relative">
-                            <button id="copyIdBtn" class="hidden bg-gray-600 hover:bg-gray-500 text-white text-xs font-bold py-1 px-3 rounded-lg transition-colors">Copiar</button>
-                         </div>
                     </div>
                 </div>
                 <div class="flex-1">
@@ -74,19 +71,18 @@
         <!-- Seção do Jogo -->
         <div id="game-area" class="hidden w-full">
             <div id="game-message" class="text-center mb-4 text-2xl font-bold h-8"></div>
-            <div id="gemini-response-area" class="text-center mb-4 text-lg text-yellow-300 min-h-[28px]"></div>
-            <div class="loader" id="loader"></div>
-            <div class="flex flex-col md:flex-row gap-4 w-full">
-                <div class="flex-1">
-                    <canvas id="gameCanvas"></canvas>
-                </div>
+            <div id="game-container">
+                <canvas id="gameCanvas"></canvas>
+                <div id="countdown-overlay">3</div>
+                <div id="player-hud" class="hud" style="display: none;"></div>
+                <div id="friend-hud" class="hud" style="display: none;"></div>
             </div>
              <div id="end-game-buttons" class="flex gap-4 mt-4"></div>
         </div>
     </div>
 
     <script>
-    // --- CONFIGURAÇÃO INICIAL E VARIÁVEIS DO JOGO ---
+    // --- CONFIGURAÇÃO E VARIÁVEIS ---
     const getHostIdBtn = document.getElementById('getHostId');
     const connectToHostBtn = document.getElementById('connectToHost');
     const myPeerIdSpan = document.getElementById('my-peer-id');
@@ -94,98 +90,59 @@
     const statusP = document.getElementById('status');
     const connectionSetupDiv = document.getElementById('connection-setup');
     const gameAreaDiv = document.getElementById('game-area');
-    const copyIdBtn = document.getElementById('copyIdBtn');
     const gameMessage = document.getElementById('game-message');
+    const endGameButtonsDiv = document.getElementById('end-game-buttons');
     const playAgainBtn = document.createElement('button');
     playAgainBtn.className = "w-full bg-yellow-500 hover:bg-yellow-600 text-black font-bold py-2 px-4 rounded-lg transition-colors";
     playAgainBtn.textContent = "Jogar Novamente";
 
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
-    
-    const hostOptionsDiv = document.getElementById('host-options');
-    const generateTitleBtn = document.getElementById('generate-title-btn');
-    const themeInput = document.getElementById('theme-input');
-    const gameTitleH1 = document.getElementById('game-title');
-    const geminiResponseArea = document.getElementById('gemini-response-area');
-    const endGameButtonsDiv = document.getElementById('end-game-buttons');
-    const loader = document.getElementById('loader');
+    const countdownOverlay = document.getElementById('countdown-overlay');
+    const playerHud = document.getElementById('player-hud');
+    const friendHud = document.getElementById('friend-hud');
 
     let peer, conn;
     let player, friend;
-    let platforms = [];
+    let platforms = [], interactables = [], particles = [], stars = [];
     let cameraY = 0;
-    let gameOver = false;
+    let gameOver = false, gameRunning = false;
     let animationFrameId;
     let isHost = false;
 
-    const GRAVITY = 0.4, JUMP_FORCE = -10, PLAYER_SPEED = 5, CAMERA_SPEED = 0.7, PLAYER_WIDTH = 30, PLAYER_HEIGHT = 30;
+    const GRAVITY = 0.4, PLAYER_SPEED = 5, PLAYER_WIDTH = 30, PLAYER_HEIGHT = 30;
+    let JUMP_FORCE = -10, CAMERA_SPEED = 0.7;
 
-    // --- LÓGICA DA API GEMINI ---
-    async function callGemini(prompt) {
-        loader.style.display = 'block';
-        geminiResponseArea.textContent = '';
-        let text = 'Não foi possível gerar texto. Tente novamente.';
-        try {
-            const apiKey = ""; // Será substituído pelo ambiente
-            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
-            const payload = { contents: [{ parts: [{ text: prompt }] }] };
+    // --- EFEITOS SONOROS (TONE.JS) ---
+    let soundStarted = false;
+    const synth = new Tone.Synth().toDestination();
+    const jumpSound = () => { if(soundStarted) synth.triggerAttackRelease("C4", "8n"); };
+    const powerupSound = () => { if(soundStarted) synth.triggerAttackRelease("G5", "8n"); };
+    const winSound = () => { if(soundStarted) synth.triggerAttackRelease("C5", "4n", Tone.now()); synth.triggerAttackRelease("G5", "4n", Tone.now() + 0.2); synth.triggerAttackRelease("C6", "4n", Tone.now() + 0.4); };
+    const loseSound = () => { if(soundStarted) synth.triggerAttackRelease("C3", "4n"); };
 
-            const response = await fetch(apiUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-
-            if (!response.ok) {
-                throw new Error(`API Error: ${response.statusText}`);
-            }
-
-            const result = await response.json();
-            if (result.candidates && result.candidates[0].content.parts[0].text) {
-                text = result.candidates[0].content.parts[0].text.trim();
-            }
-        } catch (error) {
-            console.error("Erro ao chamar a API Gemini:", error);
-        } finally {
-            loader.style.display = 'none';
-            return text;
+    document.body.addEventListener('click', async () => {
+        if (!soundStarted) {
+            await Tone.start();
+            soundStarted = true;
+            console.log('Audio context started');
         }
-    }
+    }, { once: true });
+
 
     // --- LÓGICA DE CONEXÃO (PEERJS) ---
-    // **FIX:** Simplificando a configuração para usar o servidor PeerJS padrão, que é mais confiável.
     function initializeHost() {
         isHost = true;
-        hostOptionsDiv.classList.remove('hidden');
         if (peer) peer.destroy();
-        
         statusP.textContent = 'Iniciando...';
-        statusP.style.color = '#f6e05e'; // yellow
-        
-        // Usando PeerJS sem configuração explícita para usar o servidor em nuvem padrão.
         peer = new Peer();
-        
         peer.on('open', id => {
             statusP.textContent = 'Aguardando conexão do amigo...';
-            statusP.style.color = '#68d391'; // green
             myPeerIdSpan.textContent = id;
             getHostIdBtn.disabled = true;
-            getHostIdBtn.textContent = "ID Gerado!";
-            copyIdBtn.classList.remove('hidden');
         });
         peer.on('connection', setupConnection);
-        
-        peer.on('error', err => { 
-            console.error("ERRO NO PEER:", err);
-            statusP.innerHTML = `Erro: ${err.type}. <br>O servidor pode estar offline. Por favor, recarregue a página e tente novamente.`;
-            statusP.style.color = '#f56565'; // red
-        });
-        
-        peer.on('disconnected', () => {
-            statusP.textContent = 'Desconectado do servidor PeerJS. Tentando reconectar...';
-            statusP.style.color = '#f6e05e'; // yellow
-        });
+        peer.on('error', err => { statusP.innerHTML = `Erro: ${err.type}. <br> Recarregue a página e tente novamente.`; });
     }
 
     function connectToPeer() {
@@ -193,55 +150,34 @@
         const hostId = otherPeerIdInput.value.trim();
         if (!hostId) { alert('Insira o ID do Host.'); return; }
         if (peer) peer.destroy();
-        
         peer = new Peer();
-        
         peer.on('open', () => {
             statusP.textContent = `Tentando conectar ao Host: ${hostId}...`;
-            statusP.style.color = '#f6e05e'; // yellow
             const newConnection = peer.connect(hostId, { reliable: true });
             setupConnection(newConnection);
         });
-
-        peer.on('error', err => {
-            console.error("ERRO NO PEER:", err);
-            statusP.innerHTML = `Erro: ${err.type}. <br>Verifique o ID do Host ou tente novamente.`;
-            statusP.style.color = '#f56565'; // red
-        });
+        peer.on('error', err => { statusP.innerHTML = `Erro: ${err.type}. <br>Verifique o ID ou tente novamente.`; });
     }
 
     function setupConnection(newConnection) {
         if (conn) conn.close();
         conn = newConnection;
-        
-        // Timeout para o caso de a conexão falhar silenciosamente
-        let connectionTimeout = setTimeout(() => {
-            statusP.textContent = 'Falha ao conectar. Verifique o ID e tente novamente.';
-            statusP.style.color = '#f56565'; // red
-            conn.close();
-        }, 15000); // 15 segundos de timeout
-
         conn.on('open', () => {
-            clearTimeout(connectionTimeout); // Conexão bem-sucedida, cancela o timeout
             statusP.textContent = `Conectado a: ${conn.peer}`;
-            statusP.style.color = '#68d391'; // green
             connectionSetupDiv.classList.add('hidden');
             gameAreaDiv.classList.remove('hidden');
-            if (isHost) {
-                conn.send({ type: 'title_update', title: gameTitleH1.textContent });
-                startGame();
-            }
+            if (isHost) initGame();
         });
         conn.on('data', handleData);
         conn.on('close', resetToLobby);
-        conn.on('error', err => { console.error("Erro na conexão:", err); resetToLobby(); });
     }
     
     function handleData(data) {
         switch (data.type) {
-            case 'start':
+            case 'init':
                 platforms = data.platforms;
-                startGame(false);
+                interactables = data.interactables;
+                initGame(false);
                 break;
             case 'pos':
                 friend.x = data.x;
@@ -253,107 +189,239 @@
                 if (player.alive) endGame(true);
                 break;
             case 'reset':
-                startGame(isHost);
+                initGame(isHost);
                 break;
-            case 'title_update':
-                gameTitleH1.textContent = data.title;
-                break;
-            case 'gemini_text':
-                geminiResponseArea.textContent = data.text;
+            case 'powerup_effect':
+                applyEffectToPlayer(data.effect);
                 break;
         }
     }
     
     function resetToLobby() {
         statusP.textContent = 'Conexão perdida.';
-        statusP.style.color = '#f56565'; // red
         gameAreaDiv.classList.add('hidden');
         connectionSetupDiv.classList.remove('hidden');
-        hostOptionsDiv.classList.add('hidden');
         getHostIdBtn.disabled = false;
-        getHostIdBtn.textContent = "Ser o Host";
-        copyIdBtn.classList.add('hidden');
         if (animationFrameId) cancelAnimationFrame(animationFrameId);
     }
     
     // --- LÓGICA DO JOGO ---
-    function generatePlatforms() {
-        const plats = [];
-        plats.push({ x: canvas.width / 2 - 50, y: canvas.height - 50, width: 100, height: 20 });
+    function generateLevel() {
+        const plats = [], inters = [];
+        const halfWidth = canvas.width / 2;
+        const platWidth = 100;
+
+        const createPlat = (side, y) => {
+            const x = side === 'left' 
+                ? Math.random() * (halfWidth - platWidth - 20) + 10
+                : halfWidth + Math.random() * (halfWidth - platWidth - 20) + 10;
+            
+            const type = Math.random() > 0.9 ? 'fake' : 'normal'; // 10% de chance de ser falsa
+            plats.push({ x, y, width: platWidth, height: 20, type });
+
+            // Chance de gerar um power-up
+            if (type === 'normal' && Math.random() > 0.85) {
+                const powerupTypes = ['jump_boost', 'speed_boost', 'freeze_opponent'];
+                const powerupType = powerupTypes[Math.floor(Math.random() * powerupTypes.length)];
+                inters.push({ x: x + platWidth / 2, y: y - 20, type: powerupType, radius: 10, collected: false });
+            }
+        };
+
+        // Plataformas iniciais
+        plats.push({ x: halfWidth / 2 - platWidth / 2, y: canvas.height - 50, width: platWidth, height: 20, type: 'normal' });
+        plats.push({ x: halfWidth + (halfWidth / 2 - platWidth / 2), y: canvas.height - 50, width: platWidth, height: 20, type: 'normal' });
+
         for (let i = 1; i < 100; i++) {
-            plats.push({
-                x: Math.random() * (canvas.width - 100),
-                y: canvas.height - 50 - (i * 120),
-                width: 100 + Math.random() * 50,
-                height: 20
-            });
+            const yPos = canvas.height - 50 - (i * 120);
+            createPlat('left', yPos);
+            createPlat('right', yPos + (Math.random() * 60 - 30));
         }
-        return plats;
+        platforms = plats;
+        interactables = inters;
     }
 
-    function startGame(isInitiator = true) {
+    function createStars() {
+        stars = [];
+        for(let i = 0; i < 100; i++) {
+            stars.push({
+                x: Math.random() * canvas.width,
+                y: Math.random() * canvas.height * 5, // Espalha as estrelas bem pra cima
+                radius: Math.random() * 1.5
+            });
+        }
+    }
+
+    function initGame(isInitiator = true) {
         const rect = canvas.getBoundingClientRect();
         canvas.width = rect.width;
-        canvas.height = rect.height;
+        canvas.height = 500;
 
-        gameOver = false;
-        cameraY = 0;
+        gameOver = false; gameRunning = false; cameraY = 0;
         gameMessage.textContent = '';
-        geminiResponseArea.textContent = '';
         endGameButtonsDiv.innerHTML = '';
+        playerHud.style.display = 'none';
+        friendHud.style.display = 'none';
 
-        player = { x: canvas.width / 2 - 15, y: canvas.height - 100, width: PLAYER_WIDTH, height: PLAYER_HEIGHT, vx: 0, vy: 0, onGround: false, color: isHost ? 'royalblue' : 'tomato', alive: true };
-        friend = { x: canvas.width / 2 - 15, y: canvas.height - 100, width: PLAYER_WIDTH, height: PLAYER_HEIGHT, color: isHost ? 'tomato' : 'royalblue', alive: true };
+        const halfWidth = canvas.width / 2;
+        const startX = isHost ? halfWidth / 2 : halfWidth + halfWidth / 2;
+        player = { x: startX, y: canvas.height - 100, width: PLAYER_WIDTH, height: PLAYER_HEIGHT, vx: 0, vy: 0, onGround: false, color: isHost ? 'royalblue' : 'tomato', alive: true, effects: {}, frozen: false };
+        friend = { x: 0, y: 0, alive: true };
         
         if (isInitiator) {
-            platforms = generatePlatforms();
-            conn.send({ type: 'start', platforms: platforms });
+            generateLevel();
+            createStars();
+            conn.send({ type: 'init', platforms, interactables });
         }
         
         if (animationFrameId) cancelAnimationFrame(animationFrameId);
-        gameLoop();
+        
+        let count = 3;
+        countdownOverlay.style.display = 'flex';
+        countdownOverlay.textContent = count;
+        
+        const countdownInterval = setInterval(() => {
+            count--;
+            if (count > 0) countdownOverlay.textContent = count;
+            else {
+                clearInterval(countdownInterval);
+                countdownOverlay.textContent = 'VAI!';
+                winSound();
+                setTimeout(() => {
+                    countdownOverlay.style.display = 'none';
+                    gameRunning = true;
+                    gameLoop();
+                }, 500);
+            }
+        }, 1000);
     }
 
     const keys = {};
     window.addEventListener('keydown', (e) => { keys[e.key] = true; });
     window.addEventListener('keyup', (e) => { keys[e.key] = false; });
 
-    function update() {
-        if (gameOver) return;
-
-        if (keys['ArrowLeft']) player.x -= PLAYER_SPEED;
-        if (keys['ArrowRight']) player.x += PLAYER_SPEED;
+    function handlePlayerMovement() {
+        if (player.frozen) return;
+        const currentSpeed = player.effects.speed_boost ? PLAYER_SPEED * 1.5 : PLAYER_SPEED;
+        if (keys['ArrowLeft']) player.x -= currentSpeed;
+        if (keys['ArrowRight']) player.x += currentSpeed;
         if ((keys['ArrowUp'] || keys[' ']) && player.onGround) {
-            player.vy = JUMP_FORCE;
+            player.vy = player.effects.jump_boost ? JUMP_FORCE * 1.5 : JUMP_FORCE;
             player.onGround = false;
+            jumpSound();
+            createParticles(player.x + player.width / 2, player.y + player.height, 5, '#ffffff');
         }
+    }
 
+    function handlePhysicsAndCollisions() {
         player.vy += GRAVITY;
         player.y += player.vy;
         player.onGround = false;
 
         platforms.forEach(plat => {
             if (player.x < plat.x + plat.width && player.x + player.width > plat.x &&
-                player.y + player.height > plat.y && player.y + player.height < plat.y + plat.height && player.vy >= 0) {
-                player.onGround = true;
-                player.y = plat.y - player.height;
-                player.vy = 0;
+                player.y + player.height > plat.y && player.y + player.height < plat.y + plat.height + player.vy && player.vy >= 0) {
+                if (plat.type === 'fake') {
+                    plat.y += 5000; // Manda pra longe
+                } else {
+                    player.onGround = true;
+                    player.y = plat.y - player.height;
+                    player.vy = 0;
+                }
+            }
+        });
+
+        interactables.forEach(item => {
+            if (!item.collected) {
+                const dist = Math.hypot(player.x + player.width/2 - item.x, player.y + player.height/2 - item.y);
+                if (dist < player.width/2 + item.radius) {
+                    item.collected = true;
+                    powerupSound();
+                    if (item.type === 'freeze_opponent') {
+                        conn.send({ type: 'powerup_effect', effect: { type: 'freeze' } });
+                    } else {
+                        applyEffectToPlayer({ type: item.type });
+                    }
+                }
             }
         });
         
-        if (player.x < 0) player.x = 0;
-        if (player.x + player.width > canvas.width) player.x = canvas.width - player.width;
+        const halfWidth = canvas.width / 2;
+        const limitLeft = isHost ? 0 : halfWidth;
+        const limitRight = isHost ? halfWidth : canvas.width;
+        if (player.x < limitLeft) player.x = limitLeft;
+        if (player.x + player.width > limitRight) player.x = limitRight - player.width;
+    }
 
+    function applyEffectToPlayer(effect) {
+        let duration = 5000; // 5 segundos para a maioria
+        let hudText = '';
+
+        if (effect.type === 'jump_boost') {
+            player.effects.jump_boost = true;
+            hudText = 'Super Pulo!';
+        } else if (effect.type === 'speed_boost') {
+            player.effects.speed_boost = true;
+            hudText = 'Super Velocidade!';
+        } else if (effect.type === 'freeze') {
+            player.frozen = true;
+            duration = 2000; // 2 segundos
+            hudText = 'CONGELADO!';
+        }
+
+        updateHud(playerHud, hudText, duration / 1000);
+
+        setTimeout(() => {
+            if (effect.type === 'jump_boost') player.effects.jump_boost = false;
+            if (effect.type === 'speed_boost') player.effects.speed_boost = false;
+            if (effect.type === 'freeze') player.frozen = false;
+        }, duration);
+    }
+    
+    function updateHud(hudElement, text, duration) {
+        if (!text) {
+            hudElement.style.display = 'none';
+            return;
+        }
+        hudElement.style.display = 'block';
+        let timeLeft = duration;
+        hudElement.textContent = `${text} (${timeLeft}s)`;
+        
+        const interval = setInterval(() => {
+            timeLeft--;
+            if (timeLeft > 0) {
+                hudElement.textContent = `${text} (${timeLeft}s)`;
+            } else {
+                clearInterval(interval);
+                hudElement.style.display = 'none';
+            }
+        }, 1000);
+    }
+
+
+    function update() {
+        if (gameOver || !gameRunning) return;
+        handlePlayerMovement();
+        handlePhysicsAndCollisions();
         cameraY += CAMERA_SPEED;
-
         if (player.y > cameraY + canvas.height) {
             player.alive = false;
             conn.send({ type: 'dead' });
             endGame(false);
         }
-
         if (conn && conn.open) {
             conn.send({ type: 'pos', x: player.x, y: player.y, alive: player.alive });
+        }
+    }
+    
+    function createParticles(x, y, count, color) {
+        for (let i = 0; i < count; i++) {
+            particles.push({
+                x, y,
+                vx: (Math.random() - 0.5) * 4,
+                vy: (Math.random() - 0.5) * 4,
+                life: 30,
+                color
+            });
         }
     }
 
@@ -362,20 +430,68 @@
         ctx.save();
         ctx.translate(0, -cameraY);
 
-        ctx.fillStyle = '#4a5568';
-        platforms.forEach(plat => ctx.fillRect(plat.x, plat.y, plat.width, plat.height));
+        // Fundo de estrelas com parallax
+        ctx.fillStyle = 'white';
+        stars.forEach(star => {
+            const screenY = star.y - cameraY * 0.5; // Efeito parallax
+            ctx.beginPath();
+            ctx.arc(star.x, screenY, star.radius, 0, Math.PI * 2);
+            ctx.fill();
+        });
 
+        // Linha divisória
+        ctx.strokeStyle = '#4a5568';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(canvas.width / 2, -100000);
+        ctx.lineTo(canvas.width / 2, 100000);
+        ctx.stroke();
+
+        // Plataformas
+        platforms.forEach(plat => {
+            ctx.fillStyle = plat.type === 'fake' ? 'rgba(255, 100, 100, 0.5)' : '#63b3ed';
+            ctx.fillRect(plat.x, plat.y, plat.width, plat.height);
+        });
+
+        // Interactables (Power-ups)
+        interactables.forEach(item => {
+            if (!item.collected) {
+                ctx.save();
+                ctx.translate(item.x, item.y);
+                ctx.scale(1 + Math.sin(Date.now() / 200) * 0.1, 1 + Math.sin(Date.now() / 200) * 0.1);
+                ctx.fillStyle = 'gold';
+                ctx.beginPath();
+                if (item.type === 'jump_boost') { ctx.fillText('👟', -item.radius, item.radius); }
+                else if (item.type === 'speed_boost') { ctx.fillText('⚡', -item.radius, item.radius); }
+                else if (item.type === 'freeze_opponent') { ctx.fillText('❄️', -item.radius, item.radius); }
+                ctx.fill();
+                ctx.restore();
+            }
+        });
+
+        // Jogadores
         if (player.alive) {
-            ctx.fillStyle = player.color;
+            ctx.fillStyle = player.frozen ? '#add8e6' : player.color;
             ctx.fillRect(player.x, player.y, player.width, player.height);
         }
-        
         if (friend.alive) {
             ctx.fillStyle = friend.color;
             ctx.globalAlpha = 0.7;
-            ctx.fillRect(friend.x, friend.y, friend.width, friend.height);
+            ctx.fillRect(friend.x, friend.y, PLAYER_WIDTH, PLAYER_HEIGHT);
             ctx.globalAlpha = 1.0;
         }
+        
+        // Partículas
+        particles.forEach((p, index) => {
+            p.x += p.vx;
+            p.y += p.vy;
+            p.life--;
+            ctx.globalAlpha = p.life / 30;
+            ctx.fillStyle = p.color;
+            ctx.fillRect(p.x, p.y, 3, 3);
+            if (p.life <= 0) particles.splice(index, 1);
+        });
+        ctx.globalAlpha = 1.0;
 
         ctx.restore();
     }
@@ -389,37 +505,13 @@
     function endGame(iWon) {
         if (gameOver) return;
         gameOver = true;
+        gameRunning = false;
         cancelAnimationFrame(animationFrameId);
         gameMessage.textContent = iWon ? "VOCÊ VENCEU!" : "Você perdeu...";
-        gameMessage.style.color = iWon ? '#48bb78' : '#f56565';
+        if (iWon) winSound(); else loseSound();
         
         endGameButtonsDiv.innerHTML = '';
-        
-        const geminiBtn = document.createElement('button');
-        geminiBtn.className = "flex-1 bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg transition-colors";
-        
-        if (iWon) {
-            geminiBtn.textContent = "✨ Gerar Provocação";
-            geminiBtn.onclick = async () => {
-                const prompt = `Você é o vencedor de um jogo de escalada chamado "${gameTitleH1.textContent}". Gere uma provocação curta, engraçada e amigável para o perdedor. Seja criativo e não muito maldoso.`;
-                const text = await callGemini(prompt);
-                geminiResponseArea.textContent = text;
-                conn.send({type: 'gemini_text', text: text});
-            };
-        } else {
-            geminiBtn.textContent = "✨ Gerar Elogio";
-            geminiBtn.onclick = async () => {
-                const prompt = `Você é o perdedor de um jogo de escalada chamado "${gameTitleH1.textContent}". Gere um elogio curto, engraçado e um pouco sarcástico para o vencedor.`;
-                const text = await callGemini(prompt);
-                geminiResponseArea.textContent = text;
-                conn.send({type: 'gemini_text', text: text});
-            };
-        }
-        endGameButtonsDiv.appendChild(geminiBtn);
-        
-        if(isHost) {
-            endGameButtonsDiv.appendChild(playAgainBtn);
-        }
+        if(isHost) endGameButtonsDiv.appendChild(playAgainBtn);
     }
 
     // --- EVENT LISTENERS ---
@@ -427,22 +519,7 @@
     connectToHostBtn.addEventListener('click', connectToPeer);
     playAgainBtn.addEventListener('click', () => {
         conn.send({type: 'reset'});
-        startGame(true);
-    });
-    copyIdBtn.addEventListener('click', () => {
-        navigator.clipboard.writeText(myPeerIdSpan.textContent).then(() => {
-            const feedback = document.createElement('div');
-            feedback.textContent = 'Copiado!';
-            feedback.className = 'copied-feedback';
-            copyIdBtn.parentElement.appendChild(feedback);
-            setTimeout(() => feedback.remove(), 2000);
-        });
-    });
-    generateTitleBtn.addEventListener('click', async () => {
-        const theme = themeInput.value || 'aleatório';
-        const prompt = `Gere um nome criativo e divertido para um jogo de escalada multiplayer com o tema "${theme}". O nome base é "Guerra de Blocos". Seja curto e impactante, no formato "Guerra de Blocos: Título Criativo".`;
-        const newTitle = await callGemini(prompt);
-        gameTitleH1.textContent = newTitle;
+        initGame(true);
     });
     </script>
 </body>
