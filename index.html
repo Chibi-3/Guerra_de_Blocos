@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jogo de Escalada Multiplayer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        canvas {
+            background-color: #1a202c;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .copied-feedback {
+            position: absolute; bottom: 100%; left: 50%;
+            transform: translateX(-50%); background-color: #2dce89;
+            color: white; padding: 4px 8px; border-radius: 4px;
+            font-size: 12px; white-space: nowrap;
+        }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            display: none; /* Hidden by default */
+            margin: 0 auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white flex flex-col items-center justify-center min-h-screen p-4">
+
+    <div class="w-full max-w-5xl bg-gray-800 rounded-lg shadow-xl p-6 space-y-6">
+        <h1 id="game-title" class="text-3xl font-bold text-center text-cyan-400">Guerra de Blocos: A Escalada</h1>
+
+        <!-- Seção de Conexão -->
+        <div id="connection-setup" class="bg-gray-700 p-4 rounded-lg">
+            <h2 class="text-xl font-semibold mb-2">1. Conexão</h2>
+            <p class="text-sm text-gray-400 mb-4">Um jogador deve ser o "Host". O outro se conecta a ele usando o ID.</p>
+            
+            <!-- Gemini Feature: Gerador de Tema -->
+            <div id="host-options" class="hidden mb-4 p-3 bg-gray-600 rounded-lg">
+                 <label for="theme-input" class="block text-sm font-medium text-cyan-300">Digite um tema para o jogo (opcional):</label>
+                 <div class="flex gap-2 mt-1">
+                    <input type="text" id="theme-input" placeholder="Ex: selva, espaço, doces..." class="w-full p-2 rounded-lg bg-gray-800 border border-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                    <button id="generate-title-btn" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg transition-colors whitespace-nowrap">✨ Gerar Nome</button>
+                 </div>
+            </div>
+
+            <div class="flex flex-col sm:flex-row gap-4">
+                <div class="flex-1">
+                    <button id="getHostId" class="w-full bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-2 px-4 rounded-lg transition-colors">Ser o Host</button>
+                    <div class="mt-2 flex items-center justify-between">
+                         <p class="text-sm">Seu ID: <strong id="my-peer-id" class="text-yellow-400 select-all">Aguardando...</strong></p>
+                         <div class="relative">
+                            <button id="copyIdBtn" class="hidden bg-gray-600 hover:bg-gray-500 text-white text-xs font-bold py-1 px-3 rounded-lg transition-colors">Copiar</button>
+                         </div>
+                    </div>
+                </div>
+                <div class="flex-1">
+                    <input type="text" id="other-peer-id" placeholder="Cole o ID do Host aqui" class="w-full p-2 rounded-lg bg-gray-800 border border-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                    <button id="connectToHost" class="w-full mt-2 bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg transition-colors">Conectar ao Host</button>
+                </div>
+            </div>
+            <p id="status" class="text-center mt-4 text-gray-400">Status: Desconectado</p>
+        </div>
+
+        <!-- Seção do Jogo -->
+        <div id="game-area" class="hidden w-full">
+            <div id="game-message" class="text-center mb-4 text-2xl font-bold h-8"></div>
+            <div id="gemini-response-area" class="text-center mb-4 text-lg text-yellow-300 min-h-[28px]"></div>
+            <div class="loader" id="loader"></div>
+            <div class="flex flex-col md:flex-row gap-4 w-full">
+                <div class="flex-1">
+                    <canvas id="gameCanvas"></canvas>
+                </div>
+            </div>
+             <div id="end-game-buttons" class="flex gap-4 mt-4"></div>
+        </div>
+    </div>
+
+    <script>
+    // --- CONFIGURAÇÃO INICIAL E VARIÁVEIS DO JOGO ---
+    const getHostIdBtn = document.getElementById('getHostId');
+    const connectToHostBtn = document.getElementById('connectToHost');
+    const myPeerIdSpan = document.getElementById('my-peer-id');
+    const otherPeerIdInput = document.getElementById('other-peer-id');
+    const statusP = document.getElementById('status');
+    const connectionSetupDiv = document.getElementById('connection-setup');
+    const gameAreaDiv = document.getElementById('game-area');
+    const copyIdBtn = document.getElementById('copyIdBtn');
+    const gameMessage = document.getElementById('game-message');
+    const playAgainBtn = document.createElement('button');
+    playAgainBtn.className = "w-full bg-yellow-500 hover:bg-yellow-600 text-black font-bold py-2 px-4 rounded-lg transition-colors";
+    playAgainBtn.textContent = "Jogar Novamente";
+
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    // Gemini elements
+    const hostOptionsDiv = document.getElementById('host-options');
+    const generateTitleBtn = document.getElementById('generate-title-btn');
+    const themeInput = document.getElementById('theme-input');
+    const gameTitleH1 = document.getElementById('game-title');
+    const geminiResponseArea = document.getElementById('gemini-response-area');
+    const endGameButtonsDiv = document.getElementById('end-game-buttons');
+    const loader = document.getElementById('loader');
+
+    let peer, conn;
+    let player, friend;
+    let platforms = [];
+    let cameraY = 0;
+    let gameOver = false;
+    let animationFrameId;
+    let isHost = false;
+
+    const GRAVITY = 0.4, JUMP_FORCE = -10, PLAYER_SPEED = 5, CAMERA_SPEED = 0.7, PLAYER_WIDTH = 30, PLAYER_HEIGHT = 30;
+
+    // --- LÓGICA DA API GEMINI ---
+    async function callGemini(prompt) {
+        loader.style.display = 'block';
+        geminiResponseArea.textContent = '';
+        let text = 'Não foi possível gerar texto. Tente novamente.';
+        try {
+            const apiKey = ""; // Será substituído pelo ambiente
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+            const payload = { contents: [{ parts: [{ text: prompt }] }] };
+
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+                throw new Error(`API Error: ${response.statusText}`);
+            }
+
+            const result = await response.json();
+            if (result.candidates && result.candidates[0].content.parts[0].text) {
+                text = result.candidates[0].content.parts[0].text.trim();
+            }
+        } catch (error) {
+            console.error("Erro ao chamar a API Gemini:", error);
+        } finally {
+            loader.style.display = 'none';
+            return text;
+        }
+    }
+
+    // --- LÓGICA DE CONEXÃO (PEERJS) ---
+    // **FIX:** Trocando para uma configuração de servidor PeerJS diferente e mais estável.
+    const peerConfig = {
+        config: {
+            'iceServers': [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun.services.mozilla.com' }
+            ]
+        }
+    };
+
+    function initializeHost() {
+        isHost = true;
+        hostOptionsDiv.classList.remove('hidden');
+        if (peer) peer.destroy();
+        
+        statusP.textContent = 'Tentando conectar ao servidor PeerJS...';
+        peer = new Peer(undefined, peerConfig);
+        
+        peer.on('open', id => {
+            statusP.textContent = 'Aguardando conexão do amigo...';
+            myPeerIdSpan.textContent = id;
+            getHostIdBtn.disabled = true;
+            getHostIdBtn.textContent = "ID Gerado!";
+            copyIdBtn.classList.remove('hidden');
+        });
+        peer.on('connection', setupConnection);
+        // **FIX:** Mensagem de erro mais detalhada para o usuário.
+        peer.on('error', err => { 
+            console.error("ERRO NO PEER:", err);
+            statusP.innerHTML = `Erro: ${err.type}. <br>O servidor pode estar offline. Tente novamente mais tarde.`;
+        });
+        peer.on('disconnected', () => {
+            statusP.textContent = 'Desconectado do servidor PeerJS. Tentando reconectar...';
+        });
+    }
+
+    function connectToPeer() {
+        isHost = false;
+        const hostId = otherPeerIdInput.value.trim();
+        if (!hostId) { alert('Insira o ID do Host.'); return; }
+        if (peer) peer.destroy();
+        
+        peer = new Peer(undefined, peerConfig);
+        
+        peer.on('open', () => {
+            statusP.textContent = `Tentando conectar ao Host: ${hostId}...`;
+            const newConnection = peer.connect(hostId, { reliable: true });
+            setupConnection(newConnection);
+        });
+        peer.on('error', err => {
+            console.error("ERRO NO PEER:", err);
+            statusP.innerHTML = `Erro: ${err.type}. <br>Verifique o ID do Host ou tente novamente.`;
+        });
+    }
+
+    function setupConnection(newConnection) {
+        if (conn) conn.close();
+        conn = newConnection;
+        conn.on('open', () => {
+            statusP.textContent = `Conectado a: ${conn.peer}`;
+            connectionSetupDiv.classList.add('hidden');
+            gameAreaDiv.classList.remove('hidden');
+            if (isHost) {
+                conn.send({ type: 'title_update', title: gameTitleH1.textContent });
+                startGame();
+            }
+        });
+        conn.on('data', handleData);
+        conn.on('close', resetToLobby);
+        conn.on('error', err => { console.error("Erro na conexão:", err); resetToLobby(); });
+    }
+    
+    function handleData(data) {
+        switch (data.type) {
+            case 'start':
+                platforms = data.platforms;
+                startGame(false);
+                break;
+            case 'pos':
+                friend.x = data.x;
+                friend.y = data.y;
+                friend.alive = data.alive;
+                break;
+            case 'dead':
+                friend.alive = false;
+                if (player.alive) endGame(true);
+                break;
+            case 'reset':
+                startGame(isHost);
+                break;
+            case 'title_update':
+                gameTitleH1.textContent = data.title;
+                break;
+            case 'gemini_text':
+                geminiResponseArea.textContent = data.text;
+                break;
+        }
+    }
+    
+    function resetToLobby() {
+        statusP.textContent = 'Conexão perdida.';
+        gameAreaDiv.classList.add('hidden');
+        connectionSetupDiv.classList.remove('hidden');
+        hostOptionsDiv.classList.add('hidden');
+        getHostIdBtn.disabled = false;
+        getHostIdBtn.textContent = "Ser o Host";
+        copyIdBtn.classList.add('hidden');
+        if (animationFrameId) cancelAnimationFrame(animationFrameId);
+    }
+    
+    // --- LÓGICA DO JOGO ---
+    function generatePlatforms() {
+        const plats = [];
+        plats.push({ x: canvas.width / 2 - 50, y: canvas.height - 50, width: 100, height: 20 });
+        for (let i = 1; i < 100; i++) {
+            plats.push({
+                x: Math.random() * (canvas.width - 100),
+                y: canvas.height - 50 - (i * 120),
+                width: 100 + Math.random() * 50,
+                height: 20
+            });
+        }
+        return plats;
+    }
+
+    function startGame(isInitiator = true) {
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = rect.width;
+        canvas.height = rect.height;
+
+        gameOver = false;
+        cameraY = 0;
+        gameMessage.textContent = '';
+        geminiResponseArea.textContent = '';
+        endGameButtonsDiv.innerHTML = '';
+
+        player = { x: canvas.width / 2 - 15, y: canvas.height - 100, width: PLAYER_WIDTH, height: PLAYER_HEIGHT, vx: 0, vy: 0, onGround: false, color: isHost ? 'royalblue' : 'tomato', alive: true };
+        friend = { x: canvas.width / 2 - 15, y: canvas.height - 100, width: PLAYER_WIDTH, height: PLAYER_HEIGHT, color: isHost ? 'tomato' : 'royalblue', alive: true };
+        
+        if (isInitiator) {
+            platforms = generatePlatforms();
+            conn.send({ type: 'start', platforms: platforms });
+        }
+        
+        if (animationFrameId) cancelAnimationFrame(animationFrameId);
+        gameLoop();
+    }
+
+    const keys = {};
+    window.addEventListener('keydown', (e) => { keys[e.key] = true; });
+    window.addEventListener('keyup', (e) => { keys[e.key] = false; });
+
+    function update() {
+        if (gameOver) return;
+
+        if (keys['ArrowLeft']) player.x -= PLAYER_SPEED;
+        if (keys['ArrowRight']) player.x += PLAYER_SPEED;
+        if ((keys['ArrowUp'] || keys[' ']) && player.onGround) {
+            player.vy = JUMP_FORCE;
+            player.onGround = false;
+        }
+
+        player.vy += GRAVITY;
+        player.y += player.vy;
+        player.onGround = false;
+
+        platforms.forEach(plat => {
+            if (player.x < plat.x + plat.width && player.x + player.width > plat.x &&
+                player.y + player.height > plat.y && player.y + player.height < plat.y + plat.height && player.vy >= 0) {
+                player.onGround = true;
+                player.y = plat.y - player.height;
+                player.vy = 0;
+            }
+        });
+        
+        if (player.x < 0) player.x = 0;
+        if (player.x + player.width > canvas.width) player.x = canvas.width - player.width;
+
+        cameraY += CAMERA_SPEED;
+
+        if (player.y > cameraY + canvas.height) {
+            player.alive = false;
+            conn.send({ type: 'dead' });
+            endGame(false);
+        }
+
+        conn.send({ type: 'pos', x: player.x, y: player.y, alive: player.alive });
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.save();
+        ctx.translate(0, -cameraY);
+
+        ctx.fillStyle = '#4a5568';
+        platforms.forEach(plat => ctx.fillRect(plat.x, plat.y, plat.width, plat.height));
+
+        if (player.alive) {
+            ctx.fillStyle = player.color;
+            ctx.fillRect(player.x, player.y, player.width, player.height);
+        }
+        
+        if (friend.alive) {
+            ctx.fillStyle = friend.color;
+            ctx.globalAlpha = 0.7;
+            ctx.fillRect(friend.x, friend.y, friend.width, friend.height);
+            ctx.globalAlpha = 1.0;
+        }
+
+        ctx.restore();
+    }
+
+    function gameLoop() {
+        update();
+        draw();
+        animationFrameId = requestAnimationFrame(gameLoop);
+    }
+    
+    function endGame(iWon) {
+        if (gameOver) return;
+        gameOver = true;
+        cancelAnimationFrame(animationFrameId);
+        gameMessage.textContent = iWon ? "VOCÊ VENCEU!" : "Você perdeu...";
+        gameMessage.style.color = iWon ? '#48bb78' : '#f56565';
+        
+        endGameButtonsDiv.innerHTML = ''; // Limpa botões antigos
+        
+        const geminiBtn = document.createElement('button');
+        geminiBtn.className = "flex-1 bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg transition-colors";
+        
+        if (iWon) {
+            geminiBtn.textContent = "✨ Gerar Provocação";
+            geminiBtn.onclick = async () => {
+                const prompt = `Você é o vencedor de um jogo de escalada chamado "${gameTitleH1.textContent}". Gere uma provocação curta, engraçada e amigável para o perdedor. Seja criativo e não muito maldoso.`;
+                const text = await callGemini(prompt);
+                geminiResponseArea.textContent = text;
+                conn.send({type: 'gemini_text', text: text});
+            };
+        } else {
+            geminiBtn.textContent = "✨ Gerar Elogio";
+            geminiBtn.onclick = async () => {
+                const prompt = `Você é o perdedor de um jogo de escalada chamado "${gameTitleH1.textContent}". Gere um elogio curto, engraçado e um pouco sarcástico para o vencedor.`;
+                const text = await callGemini(prompt);
+                geminiResponseArea.textContent = text;
+                conn.send({type: 'gemini_text', text: text});
+            };
+        }
+        endGameButtonsDiv.appendChild(geminiBtn);
+        
+        if(isHost) {
+            endGameButtonsDiv.appendChild(playAgainBtn);
+        }
+    }
+
+    // --- EVENT LISTENERS ---
+    getHostIdBtn.addEventListener('click', initializeHost);
+    connectToHostBtn.addEventListener('click', connectToPeer);
+    playAgainBtn.addEventListener('click', () => {
+        conn.send({type: 'reset'});
+        startGame(true);
+    });
+    copyIdBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(myPeerIdSpan.textContent).then(() => {
+            const feedback = document.createElement('div');
+            feedback.textContent = 'Copiado!';
+            feedback.className = 'copied-feedback';
+            copyIdBtn.parentElement.appendChild(feedback);
+            setTimeout(() => feedback.remove(), 2000);
+        });
+    });
+    generateTitleBtn.addEventListener('click', async () => {
+        const theme = themeInput.value || 'aleatório';
+        const prompt = `Gere um nome criativo e divertido para um jogo de escalada multiplayer com o tema "${theme}". O nome base é "Guerra de Blocos". Seja curto e impactante, no formato "Guerra de Blocos: Título Criativo".`;
+        const newTitle = await callGemini(prompt);
+        gameTitleH1.textContent = newTitle;
+    });
+    </script>
+</body>
+</html>
