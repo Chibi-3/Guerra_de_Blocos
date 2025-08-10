@@ -100,13 +100,13 @@
     let gameRunning = false;
     let animationFrameId;
     let isHost = false;
-    let lowestPlatformY = 0; // Rastreia a plataforma mais baixa
+    let lowestPlatformY = 0;
 
-    const GRAVITY = 0.4, JUMP_FORCE = -10, PLAYER_SPEED = 5;
+    const GRAVITY = 0.5, JUMP_FORCE = -11, PLAYER_SPEED = 5;
     const PLAYER_WIDTH = 30, PLAYER_HEIGHT = 30;
-    // **MUDANÇA:** Velocidade das plataformas que sobem
-    let PLATFORM_SPEED_INITIAL = 1.1;
-    let PLATFORM_ACCELERATION = 0.0005; 
+    // **MUDANÇA DRÁSTICA:** Velocidade e aceleração das plataformas aumentadas para criar um desafio real.
+    let PLATFORM_SPEED_INITIAL = 1.5;
+    let PLATFORM_ACCELERATION = 0.001; 
     let platformSpeed = PLATFORM_SPEED_INITIAL;
 
 
@@ -198,7 +198,8 @@
     function addPlatforms(startY, numPlatforms) {
         const newPlats = [];
         const halfWidth = canvas.width / 2;
-        const platWidth = 75;
+        // **MUDANÇA DRÁSTICA:** Plataformas mais estreitas para aumentar a dificuldade.
+        const platWidth = 60;
         let currentY = startY;
         const margin = 30;
         let lowestY = startY;
@@ -244,7 +245,7 @@
         friend = { x: isHost ? startX_P2 : startX_P1, y: 50, width: PLAYER_WIDTH, height: PLAYER_HEIGHT, color: isHost ? 'tomato' : 'royalblue', alive: true };
         
         if (isInitiator) {
-            platforms = addPlatforms(canvas.height, 20); // Gera 20 fileiras abaixo da tela
+            platforms = addPlatforms(canvas.height, 20);
             conn.send({ type: 'init', platforms: platforms, lowestY: lowestPlatformY });
         }
         
@@ -277,20 +278,16 @@
     function update() {
         if (gameOver || !gameRunning) return;
         
-        // **MUDANÇA:** As plataformas agora sobem
         platformSpeed += PLATFORM_ACCELERATION;
         platforms.forEach(p => p.y -= platformSpeed);
 
-        // Gera novas plataformas quando as últimas estiverem entrando na tela
         if (isHost && lowestPlatformY < canvas.height + 200) {
             const newPlats = addPlatforms(lowestPlatformY + 120, 10);
             platforms.push(...newPlats);
             conn.send({ type: 'new_plats', platforms: newPlats, lowestY: lowestPlatformY });
         }
-        // Limpa plataformas que já saíram da tela
         platforms = platforms.filter(p => p.y + p.height > 0);
 
-        // Movimento do jogador
         if (keys['ArrowLeft']) player.x -= PLAYER_SPEED;
         if (keys['ArrowRight']) player.x += PLAYER_SPEED;
         if ((keys['ArrowUp'] || keys[' ']) && player.onGround) {
@@ -302,13 +299,10 @@
         player.y += player.vy;
         player.onGround = false;
 
-        // Colisão com plataformas
         platforms.forEach(plat => {
-            // A condição de colisão agora precisa considerar que o jogador é carregado para cima
             if (player.x < plat.x + plat.width && player.x + player.width > plat.x &&
                 player.y + player.height > plat.y && player.y + player.height < plat.y + plat.height + player.vy) {
-                
-                if (player.vy >= 0) { // Só aterrissa se estiver caindo
+                if (player.vy >= 0) {
                     player.onGround = true;
                     player.y = plat.y - player.height;
                     player.vy = 0;
@@ -316,12 +310,10 @@
             }
         });
         
-        // Se o jogador estiver em uma plataforma, ele é carregado para cima com ela
         if (player.onGround) {
             player.y -= platformSpeed;
         }
         
-        // Limites da tela (horizontal, por zona)
         const halfWidth = canvas.width / 2;
         const margin = 5;
         if (isHost) {
@@ -332,7 +324,6 @@
             if (player.x + player.width > canvas.width - margin) player.x = canvas.width - player.width - margin;
         }
 
-        // **MUDANÇA:** Condição de morte. Morre se sair pelo topo OU cair para fora da tela.
         if (player.y + player.height < 0 || player.y > canvas.height) {
             player.alive = false;
             conn.send({ type: 'dead' });
@@ -347,9 +338,10 @@
     function draw() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         
-        // **MUDANÇA:** Câmera está parada, não há mais ctx.translate
+        // **NOVO:** Desenha a zona de perigo no topo
+        ctx.fillStyle = 'rgba(255, 50, 50, 0.2)';
+        ctx.fillRect(0, 0, canvas.width, 30);
 
-        // Desenhar linha divisória
         ctx.strokeStyle = '#4a5568';
         ctx.lineWidth = 4;
         ctx.beginPath();
@@ -357,11 +349,9 @@
         ctx.lineTo(canvas.width / 2, canvas.height);
         ctx.stroke();
 
-        // Desenhar plataformas
         ctx.fillStyle = '#63b3ed';
         platforms.forEach(plat => ctx.fillRect(plat.x, plat.y, plat.width, plat.height));
 
-        // Desenhar jogadores
         if (player.alive) {
             ctx.fillStyle = player.color;
             ctx.fillRect(player.x, player.y, player.width, player.height);
