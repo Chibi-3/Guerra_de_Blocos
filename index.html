@@ -1,355 +1,140 @@
-<!-- Substitua o <script> do seu código pelo conteúdo abaixo -->
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Guerra de Blocos: Escalada Infinita</title>
+<style>
+    body {
+        margin: 0;
+        background-color: #0d1b2a;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+    }
+    #gameCanvas {
+        background-color: #1b263b;
+        display: block;
+        border-radius: 10px;
+    }
+</style>
+</head>
+<body>
+<canvas id="gameCanvas" width="500" height="700"></canvas>
+
 <script>
-/* ================= CONFIG E ELEMENTOS DOM ================= */
-const getHostIdBtn = document.getElementById('getHostId');
-const connectToHostBtn = document.getElementById('connectToHost');
-const myPeerIdSpan = document.getElementById('my-peer-id');
-const otherPeerIdInput = document.getElementById('other-peer-id');
-const statusP = document.getElementById('status');
-const connectionSetupDiv = document.getElementById('connection-setup');
-const gameAreaDiv = document.getElementById('game-area');
-const gameMessage = document.getElementById('game-message');
-const endGameButtonsDiv = document.getElementById('end-game-buttons');
-const playAgainBtn = document.createElement('button');
-playAgainBtn.className = "w-full bg-yellow-500 hover:bg-yellow-600 text-black font-bold py-2 px-4 rounded-lg transition-colors";
-playAgainBtn.textContent = "Jogar Novamente";
-const copyIdBtn = document.getElementById('copyIdBtn');
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
 
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
-const countdownOverlay = document.getElementById('countdown-overlay');
+const playerSize = 30;
+const platformWidth = 80;
+const platformHeight = 15;
+const gravity = 0.4;
+const jumpStrength = -10;
 
-let peer, conn;
-let player, friend;
+// Jogadores em lados opostos
+let players = [
+    { x: canvas.width / 4 - playerSize / 2, y: canvas.height - 100, vy: 0, color: "blue" },
+    { x: (3 * canvas.width) / 4 - playerSize / 2, y: canvas.height - 100, vy: 0, color: "red" }
+];
+
 let platforms = [];
-let cameraY = 0;         // top Y do que está sendo desenhado
-let gameOver = false;
-let gameRunning = false;
-let animationFrameId;
-let isHost = false;
-let nextPlatformY = 0;   // y da próxima linha que ainda não foi gerada (menor = mais "pra cima")
+let cameraY = 0;
+let highestPlatformY = 0;
 
-const GRAVITY = 0.4, JUMP_FORCE = -10, PLAYER_SPEED = 5;
-const PLAYER_WIDTH = 30, PLAYER_HEIGHT = 30;
-
-/* ================ PEERJS (igual) ================ */
-function initializeHost() {
-    isHost = true;
-    if (peer) peer.destroy();
-    statusP.textContent = 'Iniciando...';
-    peer = new Peer();
-    peer.on('open', id => {
-        statusP.textContent = 'Aguardando conexão do amigo...';
-        myPeerIdSpan.textContent = id;
-        getHostIdBtn.disabled = true;
-        copyIdBtn.classList.remove('hidden');
-    });
-    peer.on('connection', setupConnection);
-    peer.on('error', err => { 
-        statusP.innerHTML = `Erro de conexão: ${err.type}. <br> Por favor, recarregue a página e tente novamente.`;
-    });
+// Inicializa plataformas
+function initPlatforms() {
+    platforms = [];
+    let initialY = canvas.height - 50;
+    for (let i = 0; i < 10; i++) {
+        platforms.push({ x: canvas.width / 4 - platformWidth / 2, y: initialY });
+        platforms.push({ x: (3 * canvas.width) / 4 - platformWidth / 2, y: initialY });
+        initialY -= 120;
+    }
+    highestPlatformY = initialY;
 }
 
-function connectToPeer() {
-    isHost = false;
-    const hostId = otherPeerIdInput.value.trim();
-    if (!hostId) { alert('Insira o ID do Host.'); return; }
-    if (peer) peer.destroy();
-    peer = new Peer();
-    peer.on('open', () => {
-        statusP.textContent = `Tentando conectar ao Host: ${hostId}...`;
-        const newConnection = peer.connect(hostId, { reliable: true });
-        setupConnection(newConnection);
-    });
-    peer.on('error', err => {
-        statusP.innerHTML = `Erro: ${err.type}. <br>Verifique o ID ou tente novamente.`;
-    });
-}
+initPlatforms();
 
-function setupConnection(newConnection) {
-    if (conn) conn.close();
-    conn = newConnection;
-    conn.on('open', () => {
-        statusP.textContent = `Conectado a: ${conn.peer}`;
-        connectionSetupDiv.classList.add('hidden');
-        gameAreaDiv.classList.remove('hidden');
-        if (isHost) initGame(true); // host começa o jogo e envia init
-    });
-    conn.on('data', handleData);
-    conn.on('close', resetToLobby);
-}
-
-function handleData(data) {
-    switch (data.type) {
-        case 'init':
-            // Host envia as plataformas iniciais e o nextPlatformY
-            platforms = data.platforms || [];
-            nextPlatformY = data.nextY ?? nextPlatformY;
-            initGame(false);
-            break;
-        case 'new_plats':
-            platforms.push(...(data.platforms || []));
-            nextPlatformY = data.nextY ?? nextPlatformY;
-            break;
-        case 'pos':
-            if (!friend) friend = { x: 0, y: 0, width: PLAYER_WIDTH, height: PLAYER_HEIGHT, alive: true, color: isHost ? 'tomato' : 'royalblue' };
-            friend.x = data.x; friend.y = data.y; friend.alive = data.alive;
-            break;
-        case 'dead':
-            if (!friend) friend = { x:0,y:0,width:PLAYER_WIDTH,height:PLAYER_HEIGHT,alive:false };
-            friend.alive = false;
-            if (player && player.alive) endGame(true);
-            break;
-        case 'reset':
-            initGame(isHost);
-            break;
+function generatePlatforms() {
+    while (highestPlatformY > cameraY - canvas.height) {
+        platforms.push({
+            x: Math.random() * (canvas.width / 2 - platformWidth - 10) + 10,
+            y: highestPlatformY
+        });
+        platforms.push({
+            x: Math.random() * (canvas.width / 2 - platformWidth - 10) + canvas.width / 2 + 10,
+            y: highestPlatformY
+        });
+        highestPlatformY -= 120;
     }
 }
 
-function resetToLobby() {
-    statusP.textContent = 'Conexão perdida.';
-    gameAreaDiv.classList.add('hidden');
-    connectionSetupDiv.classList.remove('hidden');
-    getHostIdBtn.disabled = false;
-    copyIdBtn.classList.add('hidden');
-    if (animationFrameId) cancelAnimationFrame(animationFrameId);
-}
-
-/* ================ GERAÇÃO DE PLATAFORMAS (robusta) ================ */
-function addPlatforms(startY, numRows = 6) {
-    const newPlats = [];
-    const halfWidth = canvas.width / 2;
-    const platWidth = 100;
-    const spacing = 120;
-    const margin = 30;
-    let y = startY;
-    for (let i = 0; i < numRows; i++) {
-        // esquerda
-        const lx = Math.random() * (halfWidth - platWidth - margin * 2) + margin;
-        newPlats.push({ x: lx, y: Math.round(y), width: platWidth, height: 20 });
-        // direita
-        const rx = halfWidth + Math.random() * (halfWidth - platWidth - margin * 2) + margin;
-        newPlats.push({ x: Math.round(rx), y: Math.round(y + (Math.random() * 40 - 20)), width: platWidth, height: 20 });
-        y -= spacing;
-    }
-    // atualiza o nextPlatformY para a próxima posição "acima" a ser gerada
-    nextPlatformY = Math.round(y);
-    return newPlats;
-}
-
-/* ================ INICIALIZAÇÃO DO JOGO ================ */
-function initGame(isInitiator = true) {
-    // define tamanho do canvas baseado no container
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width;
-    canvas.height = 500;
-
-    gameOver = false;
-    gameRunning = false;
-    cameraY = 0;
-    gameMessage.textContent = '';
-    endGameButtonsDiv.innerHTML = '';
-
-    const halfWidth = canvas.width / 2;
-    const startX_P1 = (halfWidth / 2) - (PLAYER_WIDTH / 2);
-    const startX_P2 = halfWidth + (halfWidth / 2) - (PLAYER_WIDTH / 2);
-
-    // jogador local sempre no lado do host/convidado
-    player = {
-        x: isHost ? startX_P1 : startX_P2,
-        y: canvas.height - 100,
-        width: PLAYER_WIDTH,
-        height: PLAYER_HEIGHT,
-        vx: 0, vy: 0, onGround: false,
-        color: isHost ? 'royalblue' : 'tomato',
-        alive: true
-    };
-    friend = {
-        x: isHost ? startX_P2 : startX_P1,
-        y: canvas.height - 100,
-        width: PLAYER_WIDTH,
-        height: PLAYER_HEIGHT,
-        color: isHost ? 'tomato' : 'royalblue',
-        alive: true
-    };
-
-    // Host gera o mundo inicial e envia ao convidado
-    if (isInitiator) {
-        platforms = addPlatforms(canvas.height - 50, 20); // gera bastante no começo
-        if (conn && conn.open) conn.send({ type: 'init', platforms: platforms, nextY: nextPlatformY });
-    }
-
-    if (animationFrameId) cancelAnimationFrame(animationFrameId);
-
-    // Contagem regressiva
-    let count = 3;
-    countdownOverlay.style.display = 'flex';
-    countdownOverlay.textContent = count;
-    const countdownInterval = setInterval(() => {
-        count--;
-        if (count > 0) {
-            countdownOverlay.textContent = count;
-        } else {
-            clearInterval(countdownInterval);
-            countdownOverlay.textContent = 'VAI!';
-            setTimeout(() => {
-                countdownOverlay.style.display = 'none';
-                gameRunning = true;
-                gameLoop();
-            }, 450);
-        }
-    }, 1000);
-}
-
-/* ================ CONTROLES ================ */
-const keys = {};
-window.addEventListener('keydown', (e) => { keys[e.key] = true; });
-window.addEventListener('keyup', (e) => { keys[e.key] = false; });
-
-/* ================ UPDATE DO JOGO ================ */
 function update() {
-    if (gameOver || !gameRunning) return;
-    if (!player) return;
+    players.forEach(player => {
+        player.vy += gravity;
+        player.y += player.vy;
 
-    // geração contínua: se o próximo Y a ser gerado está perto do topo visível, adiciona mais
-    const genBuffer = canvas.height * 0.6;
-    if (isHost && nextPlatformY > cameraY - genBuffer) {
-        const newPlats = addPlatforms(nextPlatformY, 6);
-        platforms.push(...newPlats);
-        if (conn && conn.open) conn.send({ type: 'new_plats', platforms: newPlats, nextY: nextPlatformY });
-    }
-
-    // limpeza de plataformas: mantém uma faixa razoável em torno da câmera
-    const keepTop = cameraY - canvas.height * 2;
-    const keepBottom = cameraY + canvas.height * 2;
-    platforms = platforms.filter(p => p.y > keepTop && p.y < keepBottom);
-
-    // movimento local
-    if (keys['ArrowLeft']) player.x -= PLAYER_SPEED;
-    if (keys['ArrowRight']) player.x += PLAYER_SPEED;
-    if ((keys['ArrowUp'] || keys[' ']) && player.onGround) {
-        player.vy = JUMP_FORCE;
-        player.onGround = false;
-    }
-
-    player.vy += GRAVITY;
-    player.y += player.vy;
-    player.onGround = false;
-
-    // colisões com plataformas (simples)
-    for (let plat of platforms) {
-        if (player.x < plat.x + plat.width && player.x + player.width > plat.x) {
-            // checa se caiu sobre a plataforma (apenas quando vindo de cima)
-            if (player.y + player.height > plat.y && player.y + player.height - player.vy <= plat.y && player.vy >= 0) {
-                player.onGround = true;
-                player.y = plat.y - player.height;
-                player.vy = 0;
+        // Colisão com plataformas
+        platforms.forEach(p => {
+            if (player.x < p.x + platformWidth &&
+                player.x + playerSize > p.x &&
+                player.y + playerSize > p.y &&
+                player.y + playerSize < p.y + platformHeight + player.vy) {
+                player.vy = jumpStrength;
             }
+        });
+
+        // Subida da câmera
+        if (player.y < canvas.height / 2) {
+            let diff = canvas.height / 2 - player.y;
+            player.y = canvas.height / 2;
+            cameraY += diff;
+            platforms.forEach(p => p.y += diff);
         }
-    }
+    });
 
-    // limitar movimento horizontal para cada "zona"
-    const halfWidth = canvas.width / 2;
-    const margin = 5;
-    if (isHost) {
-        if (player.x < margin) player.x = margin;
-        if (player.x + player.width > halfWidth - margin) player.x = halfWidth - player.width - margin;
-    } else {
-        if (player.x < halfWidth + margin) player.x = halfWidth + margin;
-        if (player.x + player.width > canvas.width - margin) player.x = canvas.width - player.width - margin;
-    }
-
-    // câmera: se o jogador subir acima de um limiar, a câmera sobe (cameraY diminui)
-    const topThreshold = cameraY + canvas.height * 0.4;
-    if (player.y < topThreshold) {
-        cameraY = player.y - canvas.height * 0.4;
-    }
-    // OBS: cameraY pode ficar negativo; desenho lida com isso via translate
-
-    // morte por cair (ficar abaixo da tela visível)
-    if (player.y > cameraY + canvas.height) {
-        player.alive = false;
-        if (conn && conn.open) conn.send({ type: 'dead' });
-        endGame(false);
-    }
-
-    // envia posição ao outro jogador (sempre que conectado)
-    if (conn && conn.open) {
-        conn.send({ type: 'pos', x: player.x, y: player.y, alive: player.alive });
-    }
+    generatePlatforms();
 }
 
-/* ================ DESENHO ================ */
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.save();
 
-    // desloca a "câmera" (desenhamos tudo em coordenadas do mundo)
-    ctx.translate(0, -cameraY);
+    // Plataformas
+    ctx.fillStyle = "#61a5c2";
+    platforms.forEach(p => {
+        ctx.fillRect(p.x, p.y, platformWidth, platformHeight);
+    });
 
-    // linha divisória
-    ctx.strokeStyle = '#4a5568';
-    ctx.lineWidth = 4;
+    // Linha divisória
+    ctx.strokeStyle = "#ccc";
     ctx.beginPath();
-    ctx.moveTo(canvas.width / 2, -100000);
-    ctx.lineTo(canvas.width / 2, 100000);
+    ctx.moveTo(canvas.width / 2, 0);
+    ctx.lineTo(canvas.width / 2, canvas.height);
     ctx.stroke();
 
-    // plataformas
-    ctx.fillStyle = '#63b3ed';
-    for (let plat of platforms) {
-        ctx.fillRect(plat.x, plat.y, plat.width, plat.height);
-    }
-
-    // jogador local
-    if (player && player.alive) {
-        ctx.fillStyle = player.color;
-        ctx.fillRect(player.x, player.y, player.width, player.height);
-    }
-
-    // amigo
-    if (friend && friend.alive) {
-        ctx.fillStyle = friend.color;
-        ctx.fillRect(friend.x, friend.y, friend.width, friend.height);
-    }
-
-    ctx.restore();
+    // Jogadores
+    players.forEach(p => {
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x, p.y, playerSize, playerSize);
+    });
 }
 
-/* ================ LOOP PRINCIPAL ================ */
-function gameLoop() {
+function loop() {
     update();
     draw();
-    animationFrameId = requestAnimationFrame(gameLoop);
+    requestAnimationFrame(loop);
 }
 
-/* ================ FIM DE JOGO ================ */
-function endGame(iWon) {
-    if (gameOver) return;
-    gameOver = true;
-    gameRunning = false;
-    if (animationFrameId) cancelAnimationFrame(animationFrameId);
-    gameMessage.textContent = iWon ? "VOCÊ VENCEU!" : "Você perdeu...";
-    gameMessage.style.color = iWon ? '#48bb78' : '#f56565';
-    endGameButtonsDiv.innerHTML = '';
-    if (isHost) endGameButtonsDiv.appendChild(playAgainBtn);
-}
+// Controles
+document.addEventListener("keydown", e => {
+    if (e.code === "ArrowLeft") players[0].x -= 20;
+    if (e.code === "ArrowRight") players[0].x += 20;
+    if (e.code === "KeyA") players[1].x -= 20;
+    if (e.code === "KeyD") players[1].x += 20;
+});
 
-/* ================ EVENTOS / BOTÕES ================ */
-getHostIdBtn.addEventListener('click', initializeHost);
-connectToHostBtn.addEventListener('click', connectToPeer);
-playAgainBtn.addEventListener('click', () => {
-    if (conn && conn.open) conn.send({type: 'reset'});
-    initGame(isHost);
-});
-copyIdBtn.addEventListener('click', () => {
-    const id = myPeerIdSpan.textContent;
-    navigator.clipboard.writeText(id).then(() => {
-        const feedback = document.createElement('div');
-        feedback.textContent = 'Copiado!';
-        feedback.className = 'copied-feedback';
-        copyIdBtn.parentElement.appendChild(feedback);
-        setTimeout(() => { feedback.remove(); }, 2000);
-    }).catch(err => console.error('Erro ao copiar ID: ', err));
-});
+loop();
 </script>
+</body>
+</html>
