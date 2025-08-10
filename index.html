@@ -114,12 +114,11 @@
     let gameRunning = false;
     let animationFrameId;
     let isHost = false;
-    let lowestPlatformY = 0;
 
     const GRAVITY = 0.5, JUMP_FORCE = -11, PLAYER_SPEED = 5;
     const PLAYER_WIDTH = 30, PLAYER_HEIGHT = 30;
-    let PLATFORM_SPEED_INITIAL = 1.8; // **AUMENTADO**
-    let PLATFORM_ACCELERATION = 0.0015; // **AUMENTADO**
+    let PLATFORM_SPEED_INITIAL = 1.8;
+    let PLATFORM_ACCELERATION = 0.0015;
     let platformSpeed = PLATFORM_SPEED_INITIAL;
 
 
@@ -176,12 +175,10 @@
         switch (data.type) {
             case 'init':
                 platforms = data.platforms;
-                lowestPlatformY = data.lowestY;
                 initGame(false);
                 break;
             case 'new_plats':
                 platforms.push(...data.platforms);
-                lowestPlatformY = data.lowestY;
                 break;
             case 'pos':
                 friend.x = data.x;
@@ -212,7 +209,6 @@
         const platWidth = 60;
         let currentY = startY;
         const margin = 30;
-        let lowestY = startY;
 
         for (let i = 0; i < numPlatforms; i++) {
             const platYLeft = currentY + (Math.random() * 60 - 30);
@@ -221,7 +217,7 @@
             newPlats.push({
                 x: Math.random() * (halfWidth - platWidth - margin * 2) + margin,
                 y: platYLeft, width: platWidth, height: 20,
-                type: Math.random() < 0.3 ? 'breakable' : 'normal' // 30% de chance de ser quebrável
+                type: Math.random() < 0.3 ? 'breakable' : 'normal'
             });
             newPlats.push({
                 x: halfWidth + Math.random() * (halfWidth - platWidth - margin * 2) + margin,
@@ -230,10 +226,7 @@
             });
             
             currentY += 120;
-            if (platYLeft > lowestY) lowestY = platYLeft;
-            if (platYRight > lowestY) lowestY = platYRight;
         }
-        lowestPlatformY = lowestY;
         return newPlats;
     }
 
@@ -258,7 +251,7 @@
         
         if (isInitiator) {
             platforms = addPlatforms(canvas.height, 20);
-            conn.send({ type: 'init', platforms: platforms, lowestY: lowestPlatformY });
+            conn.send({ type: 'init', platforms: platforms });
         }
         
         if (animationFrameId) cancelAnimationFrame(animationFrameId);
@@ -301,10 +294,19 @@
             p.y -= platformSpeed;
         });
 
-        if (isHost && lowestPlatformY < canvas.height + 200) {
-            const newPlats = addPlatforms(lowestPlatformY + 120, 10);
-            platforms.push(...newPlats);
-            conn.send({ type: 'new_plats', platforms: newPlats, lowestY: lowestPlatformY });
+        // **FIX:** Lógica de geração infinita corrigida e robusta
+        if (isHost) {
+            let currentLowestY = 0;
+            for (const p of platforms) {
+                if (p.y > currentLowestY) {
+                    currentLowestY = p.y;
+                }
+            }
+            if (currentLowestY < canvas.height + 200) {
+                const newPlats = addPlatforms(currentLowestY + 120, 10);
+                platforms.push(...newPlats);
+                conn.send({ type: 'new_plats', platforms: newPlats });
+            }
         }
         platforms = platforms.filter(p => p.y + p.height > 0 && !p.toBeRemoved);
 
@@ -381,7 +383,6 @@
             }
             let platX = plat.x;
             if (plat.breakTimer > 0) {
-                // Efeito de tremer
                 platX += Math.sin(plat.breakTimer * 0.5) * 3;
             }
             ctx.fillRect(platX, plat.y, plat.width, plat.height);
@@ -397,7 +398,6 @@
             ctx.fillRect(friend.x, friend.y, friend.width, friend.height);
         }
 
-        // Atualiza o HUD de pontuação
         playerScoreHud.textContent = `P1: ${player.score}`;
         friendScoreHud.textContent = `P2: ${friend.score}`;
     }
