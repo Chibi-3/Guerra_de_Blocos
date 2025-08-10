@@ -116,7 +116,7 @@
             statusP.textContent = 'Aguardando conexão do amigo...';
             myPeerIdSpan.textContent = id;
             getHostIdBtn.disabled = true;
-            copyIdBtn.classList.remove('hidden'); // **FIX:** Mostra o botão de copiar
+            copyIdBtn.classList.remove('hidden');
         });
         peer.on('connection', setupConnection);
         peer.on('error', err => { 
@@ -196,16 +196,19 @@
         const halfWidth = canvas.width / 2;
         const platWidth = 100;
         let currentY = startY;
+        const margin = 30; // **AJUSTE:** Aumenta a margem do centro e das bordas
 
         for (let i = 0; i < numPlatforms; i++) {
+            // Plataforma para o lado esquerdo
             newPlats.push({
-                x: Math.random() * (halfWidth - platWidth - 20) + 10,
+                x: Math.random() * (halfWidth - platWidth - margin * 2) + margin,
                 y: currentY,
                 width: platWidth,
                 height: 20
             });
+            // Plataforma para o lado direito
             newPlats.push({
-                x: halfWidth + Math.random() * (halfWidth - platWidth - 20) + 10,
+                x: halfWidth + Math.random() * (halfWidth - platWidth - margin * 2) + margin,
                 y: currentY + (Math.random() * 60 - 30),
                 width: platWidth,
                 height: 20
@@ -233,11 +236,10 @@
         const startX_P2 = halfWidth + (halfWidth / 2) - (PLAYER_WIDTH / 2);
 
         player = { x: isHost ? startX_P1 : startX_P2, y: canvas.height - 100, width: PLAYER_WIDTH, height: PLAYER_HEIGHT, vx: 0, vy: 0, onGround: false, color: isHost ? 'royalblue' : 'tomato', alive: true };
-        // **FIX:** Garante que o objeto 'friend' tenha todas as propriedades para ser desenhado
         friend = { x: isHost ? startX_P2 : startX_P1, y: canvas.height - 100, width: PLAYER_WIDTH, height: PLAYER_HEIGHT, color: isHost ? 'tomato' : 'royalblue', alive: true };
         
         if (isInitiator) {
-            platforms = addPlatforms(canvas.height - 50, 10);
+            platforms = addPlatforms(canvas.height - 50, 15); // Gera 15 fileiras iniciais
             conn.send({ type: 'init', platforms: platforms, highestY: highestPlatformY });
         }
         
@@ -270,13 +272,11 @@
     function update() {
         if (gameOver || !gameRunning) return;
 
-        // **FIX:** Lógica de geração infinita corrigida para usar a posição do jogador
-        if (player.y < highestPlatformY + canvas.height) {
-            if (isHost) {
-                const newPlats = addPlatforms(highestPlatformY, 10);
-                platforms.push(...newPlats);
-                conn.send({ type: 'new_plats', platforms: newPlats, highestY: highestPlatformY });
-            }
+        // **FIX:** Lógica de geração infinita agora baseada na posição da câmera
+        if (isHost && cameraY < highestPlatformY + canvas.height * 2) {
+            const newPlats = addPlatforms(highestPlatformY, 10);
+            platforms.push(...newPlats);
+            conn.send({ type: 'new_plats', platforms: newPlats, highestY: highestPlatformY });
         }
         platforms = platforms.filter(p => p.y < cameraY + canvas.height * 1.5);
 
@@ -304,12 +304,13 @@
         
         // Limites da tela (horizontal, por zona)
         const halfWidth = canvas.width / 2;
+        const margin = 5; // Pequena margem para não colar na linha/borda
         if (isHost) {
-            if (player.x < 0) player.x = 0;
-            if (player.x + player.width > halfWidth) player.x = halfWidth - player.width;
+            if (player.x < margin) player.x = margin;
+            if (player.x + player.width > halfWidth - margin) player.x = halfWidth - player.width - margin;
         } else {
-            if (player.x < halfWidth) player.x = halfWidth;
-            if (player.x + player.width > canvas.width) player.x = canvas.width - player.width;
+            if (player.x < halfWidth + margin) player.x = halfWidth + margin;
+            if (player.x + player.width > canvas.width - margin) player.x = canvas.width - player.width - margin;
         }
 
         cameraY += CAMERA_SPEED;
@@ -383,7 +384,6 @@
         conn.send({type: 'reset'});
         initGame(true);
     });
-    // **FIX:** Adiciona o listener para o botão de copiar
     copyIdBtn.addEventListener('click', () => {
         const id = myPeerIdSpan.textContent;
         navigator.clipboard.writeText(id).then(() => {
