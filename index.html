@@ -104,9 +104,9 @@
 
     const GRAVITY = 0.4, JUMP_FORCE = -10, PLAYER_SPEED = 5;
     const PLAYER_WIDTH = 30, PLAYER_HEIGHT = 30;
-    // **FIX:** Lógica da câmera para forçar o jogador a subir
-    let CAMERA_SPEED_INITIAL = 0.9;
-    let CAMERA_ACCELERATION = 0.0003;
+    // **FIX:** Aumenta a velocidade e aceleração da câmera para criar mais desafio
+    let CAMERA_SPEED_INITIAL = 1.1;
+    let CAMERA_ACCELERATION = 0.0005; 
     let cameraSpeed = CAMERA_SPEED_INITIAL;
 
 
@@ -193,7 +193,8 @@
     function generateInitialPlatforms(numPlatforms) {
         const newPlats = [];
         const halfWidth = canvas.width / 2;
-        const platWidth = 100;
+        // **FIX:** Plataformas mais estreitas para aumentar a dificuldade
+        const platWidth = 75; 
         let currentY = canvas.height - 50;
         const margin = 30;
 
@@ -226,7 +227,7 @@
         gameOver = false;
         gameRunning = false;
         cameraY = 0;
-        cameraSpeed = CAMERA_SPEED_INITIAL; // **FIX:** Reseta a velocidade da câmera
+        cameraSpeed = CAMERA_SPEED_INITIAL;
         gameMessage.textContent = '';
         endGameButtonsDiv.innerHTML = '';
 
@@ -306,7 +307,7 @@
             if (player.x + player.width > canvas.width - margin) player.x = canvas.width - player.width - margin;
         }
 
-        // **FIX:** Acelera a câmera com o tempo
+        // Acelera a câmera com o tempo
         cameraSpeed += CAMERA_ACCELERATION;
         cameraY += cameraSpeed;
 
